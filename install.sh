@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# Appanel installer for Ubuntu and Debian.
+#
+#   curl -fsSL https://raw.githubusercontent.com/usmanawa2153-beep/appanel/main/install.sh | sudo bash
+#
+# Environment:
+#   APPANEL_VERSION   release tag to install (default: latest)
+#   APPANEL_PORT      fixed panel port (default: random free port)
+#   APPANEL_BINARY    install this local binary instead of downloading (for testing)
+#   APPANEL_NO_TLS=1  serve plain HTTP (only if a reverse proxy terminates TLS)
+#
+# Everything runs inside main() so a truncated download can never execute half a script.
+set -euo pipefail
+
+REPO="usmanawa2153-beep/appanel"
+BIN="/usr/local/bin/appanel"
+DATA_DIR="/var/lib/appanel"
+UNIT="/etc/systemd/system/appanel.service"
+
+TMP_DIR=""
+cleanup() { [ -n "${TMP_DIR:-}" ] && rm -rf "$TMP_DIR"; return 0; }
+trap cleanup EXIT
+
+say()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
+fail() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
+
+check_system() {
+  [ "$(id -u)" -eq 0 ] || fail "run as root (use sudo)"
+  [ "$(uname -s)" = "Linux" ] || fail "Linux only"
+  [ -r /etc/os-release ] || fail "cannot detect the operating system"
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  case "${ID:-}" in
+    ubuntu|debian) ;;
+    *) case " ${ID_LIKE:-} " in
+         *" debian "*|*" ubuntu "*) ;;
+         *) fail "Appanel V1 supports Ubuntu and Debian only (found: ${PRETTY_NAME:-unknown})" ;;
+       esac ;;
+  esac
+  command -v systemctl >/dev/null 2>&1 || fail "systemd is required"
+}
+
+detect_arch() {
+  case "$(uname -m)" in
+    x86_64|amd64)  echo amd64 ;;
+    aarch64|arm64) echo arm64 ;;
+    *) fail "unsupported CPU architecture: $(uname -m)" ;;
+  esac
+}
+
+ensure_tools() {
+  local missing=()
+  for t in curl tar sha256sum; do command -v "$t" >/dev/null 2>&1 || missing+=("$t"); done
+  if [ "${#missing[@]}" -gt 0 ]; then
+    say "installing: ${missing[*]}"
+    apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl tar coreutils ca-certificates
+  fi
+}
+
+download_binary() {
+  local arch="$1" version="${APPANEL_VERSION:-latest}" base tmp asset
+  asset="appanel-linux-${arch}.tar.gz"
+  if [ "$version" = "latest" ]; then
+    base="https://github.com/${REPO}/releases/latest/download"
+  else
+    base="https://github.com/${REPO}/releases/download/${version}"
+  fi
+  tmp="$(mktemp -d)"
+  TMP_DIR="$tmp"
+  say "downloading ${asset} (${version})"
+  curl -fsSL --retry 3 -o "${tmp}/${asset}" "${base}/${asset}" \
+    || fail "download failed. Is there a published release at https://github.com/${REPO}/releases ?"
+  curl -fsSL --retry 3 -o "${tmp}/checksums.txt" "${base}/checksums.txt" || fail "could not download checksums.txt"
+  say "verifying checksum"
+  ( cd "$tmp" && grep " ${asset}\$" checksums.txt | sha256sum -c - >/dev/null ) \
+    || fail "checksum mismatch, refusing to install"
+  tar -xzf "${tmp}/${asset}" -C "$tmp" appanel
+  install -m 0755 "${tmp}/appanel" "$BIN"
+}
+
+install_local_binary() {
+  [ -f "$APPANEL_BINARY" ] || fail "APPANEL_BINARY=$APPANEL_BINARY not found"
+  say "installing local binary $APPANEL_BINARY"
+  install -m 0755 "$APPANEL_BINARY" "$BIN"
+}
+
+write_unit() {
+  cat >"$UNIT" <<'EOF'
+[Unit]
+Description=Appanel hosting control panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=APPANEL_DATA=/var/lib/appanel
+ExecStart=/usr/local/bin/appanel serve
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  chmod 644 "$UNIT"
+}
+
+main() {
+  check_system
+  local arch; arch="$(detect_arch)"
+  ensure_tools
+
+  if [ -n "${APPANEL_BINARY:-}" ]; then install_local_binary; else download_binary "$arch"; fi
+
+  say "initialising"
+  local args=()
+  [ -n "${APPANEL_PORT:-}" ] && args+=(--port "$APPANEL_PORT")
+  [ "${APPANEL_NO_TLS:-0}" = "1" ] && args+=(--no-tls)
+  local ip; ip="$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+  [ -n "$ip" ] && args+=(--host "$ip")
+
+  mkdir -p "$DATA_DIR" && chmod 700 "$DATA_DIR"
+  local first_run=1
+  [ -f "$DATA_DIR/config.json" ] && first_run=0
+  APPANEL_DATA="$DATA_DIR" "$BIN" init "${args[@]}"
+
+  write_unit
+  systemctl daemon-reload
+  systemctl enable --now appanel >/dev/null 2>&1
+  sleep 1
+  systemctl is-active --quiet appanel || fail "service failed to start; see: journalctl -u appanel -n 50"
+
+  if [ "$first_run" -eq 0 ]; then
+    say "Appanel upgraded and running. Your existing login is unchanged."
+  else
+    say "Appanel is running."
+  fi
+  echo
+  echo "Open the firewall for the port shown above if your server has one"
+  echo "(for example: ufw allow <port>/tcp)."
+  echo "Show the URL again any time:  APPANEL_DATA=$DATA_DIR appanel info"
+}
+
+main "$@"
