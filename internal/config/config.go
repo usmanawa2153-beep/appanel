@@ -19,6 +19,7 @@ import (
 // Config is the on-disk panel configuration (config.json in the data dir).
 type Config struct {
 	Listen       string `json:"listen"`
+	Host         string `json:"host,omitempty"` // public name or IP shown in the access URL
 	Port         int    `json:"port"`
 	SecretPath   string `json:"secret_path"`
 	TLSCert      string `json:"tls_cert,omitempty"`

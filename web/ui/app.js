@@ -76,7 +76,10 @@ function route() {
 }
 const go = (hash) => { location.hash = hash; };
 
-function stopTimer() { if (state.timer) { clearInterval(state.timer); state.timer = null; } }
+function stopTimer() {
+  if (state.timer) { clearInterval(state.timer); state.timer = null; }
+  if (state.onLeave) { const f = state.onLeave; state.onLeave = null; f(); }
+}
 
 function render() {
   stopTimer();
@@ -133,13 +136,14 @@ function shell() {
   const view = h("main", { class: "main" });
   const side = h("aside", { class: "side" },
     h("div", { class: "brand" }, h("img", { src: "favicon.svg", alt: "" }), "Appanel"),
-    h("nav", { class: "nav" }, link("/dashboard", "Dashboard"), link("/files", "File Manager"), link("/settings", "Settings")),
+    h("nav", { class: "nav" }, link("/dashboard", "Dashboard"), link("/files", "File Manager"), link("/terminal", "Terminal"), link("/settings", "Settings")),
     h("div", { class: "spacer" }),
     h("div", { class: "muted" }, `Signed in as ${state.user.username}`),
     h("div", { class: "row" },
       h("button", { class: "btn sm", onclick: toggleTheme }, "Theme"),
       h("button", { class: "btn sm", onclick: async () => { try { await api.post("api/logout"); } catch { /* already out */ } state.user = null; render(); } }, "Sign out")));
   if (path.startsWith("/files")) filesView(view);
+  else if (path.startsWith("/terminal")) terminalView(view);
   else if (path.startsWith("/settings")) settingsView(view);
   else dashboardView(view);
   return h("div", { class: "shell" }, side, view);
@@ -284,6 +288,48 @@ async function editorView(view, file) {
     h("div", { class: "row" }, h("button", { class: "btn", onclick: back }, "Close"), save)), notice, ta);
   try { ta.value = (await api.get("api/files/content?path=" + encodeURIComponent(file))).content; }
   catch (x) { notice.replaceChildren(h("div", { class: "msg err" }, x.message)); ta.disabled = true; save.disabled = true; }
+}
+
+/* ---- terminal ---- */
+function terminalView(view) {
+  const status = h("span", { class: "muted" }, "connecting…");
+  const host = h("div", { class: "term", tabindex: "0", spellcheck: "false" });
+  let sock = null, term = null;
+
+  function connect() {
+    if (sock) { sock.onclose = null; try { sock.close(); } catch { /* already closed */ } }
+    host.replaceChildren();
+    const t = new WebTerminal(host, (bytes) => { if (sock && sock.readyState === 1) sock.send(bytes); });
+    term = t;
+    const url = new URL("api/terminal", location.href);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    const s = new WebSocket(url);
+    sock = s;
+    s.binaryType = "arraybuffer";
+    t.onResize = (cols, rows) => { if (s.readyState === 1) s.send(JSON.stringify({ type: "resize", cols, rows })); };
+    s.onopen = () => { status.textContent = "connected"; t.fit(); t.onResize(t.cols, t.rows); host.focus(); };
+    s.onmessage = (ev) => {
+      if (typeof ev.data !== "string") { t.write(new Uint8Array(ev.data)); return; }
+      try {
+        const m = JSON.parse(ev.data);
+        if (m.type === "exit") t.notice("[shell exited — press Reconnect for a new one]");
+        else if (m.type === "error") t.notice("[" + m.message + "]");
+      } catch { /* ignore malformed control message */ }
+    };
+    s.onclose = () => { status.textContent = "disconnected"; };
+    s.onerror = () => { status.textContent = "connection error"; };
+  }
+
+  view.append(
+    h("div", { class: "topbar" }, h("h1", {}, "Terminal"),
+      h("div", { class: "row" }, status, h("button", { class: "btn sm", onclick: connect }, "Reconnect"))),
+    host,
+    h("p", { class: "muted" }, "Runs as the panel's user (root). Full-screen programs like vim, nano and htop are not supported yet."));
+
+  const ro = new ResizeObserver(() => { if (term) term.fit(); });
+  ro.observe(host);
+  state.onLeave = () => { ro.disconnect(); if (sock) { sock.onclose = null; sock.close(); } };
+  connect();
 }
 
 /* ---- settings ---- */

@@ -6,6 +6,7 @@
 # Environment:
 #   APPANEL_VERSION   release tag to install (default: latest)
 #   APPANEL_PORT      fixed panel port (default: random free port)
+#   APPANEL_HOST      public IP or domain for the printed URL (default: auto-detected)
 #   APPANEL_BINARY    install this local binary instead of downloading (for testing)
 #   APPANEL_NO_TLS=1  serve plain HTTP (only if a reverse proxy terminates TLS)
 #
@@ -117,7 +118,9 @@ main() {
   local args=()
   [ -n "${APPANEL_PORT:-}" ] && args+=(--port "$APPANEL_PORT")
   [ "${APPANEL_NO_TLS:-0}" = "1" ] && args+=(--no-tls)
-  local ip; ip="$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+  local ip
+  ip="${APPANEL_HOST:-$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)}"
+  [ -n "$ip" ] || ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
   [ -n "$ip" ] && args+=(--host "$ip")
 
   mkdir -p "$DATA_DIR" && chmod 700 "$DATA_DIR"
@@ -131,15 +134,45 @@ main() {
   sleep 1
   systemctl is-active --quiet appanel || fail "service failed to start; see: journalctl -u appanel -n 50"
 
+  open_firewall
+
   if [ "$first_run" -eq 0 ]; then
     say "Appanel upgraded and running. Your existing login is unchanged."
   else
     say "Appanel is running."
   fi
   echo
-  echo "Open the firewall for the port shown above if your server has one"
-  echo "(for example: ufw allow <port>/tcp)."
   echo "Show the URL again any time:  APPANEL_DATA=$DATA_DIR appanel info"
+  echo "Uninstall:                   curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | sudo bash -s -- --uninstall"
 }
 
-main "$@"
+# If ufw is active, allow the panel's port so the URL works straight away.
+open_firewall() {
+  command -v ufw >/dev/null 2>&1 || return 0
+  ufw status 2>/dev/null | grep -qi "^Status: active" || return 0
+  local port
+  port="$(APPANEL_DATA="$DATA_DIR" "$BIN" info --port 2>/dev/null || true)"
+  [ -n "$port" ] || return 0
+  say "ufw is active: allowing ${port}/tcp"
+  ufw allow "${port}/tcp" >/dev/null
+}
+
+uninstall() {
+  [ "$(id -u)" -eq 0 ] || fail "run as root (use sudo)"
+  say "stopping and removing the service"
+  systemctl disable --now appanel >/dev/null 2>&1 || true
+  rm -f "$UNIT" "$BIN"
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  if [ "${2:-}" = "--purge" ]; then
+    rm -rf "$DATA_DIR"
+    say "removed Appanel and all its data"
+  else
+    say "removed Appanel. Your data is kept in $DATA_DIR (re-run with --uninstall --purge to delete it)."
+  fi
+}
+
+case "${1:-}" in
+  --uninstall) uninstall "$@" ;;
+  "")          main ;;
+  *)           fail "unknown option: $1 (supported: --uninstall [--purge])" ;;
+esac

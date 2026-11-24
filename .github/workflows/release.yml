@@ -1,11 +1,24 @@
 name: Release
 
+# Every push to main that changes code publishes a release automatically, so the
+# one-line installer always has a fresh binary to download. Version: v0.1.<run number>.
+# Pushing your own v* tag (or running this by hand) publishes that exact version instead.
 on:
   push:
+    branches: [main]
     tags: ["v*"]
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
+      - ".gitignore"
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -17,12 +30,24 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
-      - run: go test ./...
+      - name: test
+        run: go test ./...
+      - name: pick version
+        id: v
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=v0.1.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
       - name: build archives
-        run: make release VERSION="${GITHUB_REF_NAME}"
+        run: make release VERSION="${{ steps.v.outputs.version }}"
       - name: publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" dist/appanel-linux-*.tar.gz dist/checksums.txt \
-            --title "Appanel ${GITHUB_REF_NAME}" --generate-notes
+          gh release create "${{ steps.v.outputs.version }}" \
+            dist/appanel-linux-*.tar.gz dist/checksums.txt \
+            --target "${GITHUB_SHA}" \
+            --title "Appanel ${{ steps.v.outputs.version }}" \
+            --generate-notes --latest

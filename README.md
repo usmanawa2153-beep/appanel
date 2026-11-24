@@ -9,14 +9,16 @@ A self-hosted hosting control panel for Ubuntu and Debian servers, in the spirit
 | Area | State |
 | --- | --- |
 | Single binary (`appanel`), dashboard embedded | done |
-| One-line installer (`install.sh`), systemd service | done, needs a published release to download from |
+| One-line installer (`install.sh`): checksum-verified download, systemd service, opens ufw port, uninstall | done |
 | Random port + secret URL path (everything else returns 404) | done |
 | Self-signed HTTPS by default | done |
 | Login: PBKDF2-SHA256 passwords, login throttling, CSRF header, strict cookies | done |
 | Optional 2FA (TOTP, works with any authenticator app) | done |
 | Dashboard: CPU, memory, disk, network, load, uptime, CPU history | done |
 | File Manager: browse, edit, upload, download, rename, delete, new folder | done |
-| Web terminal | next |
+| Web terminal: real root shell over WebSocket, colours, history, tab completion, Ctrl+C, resize | done |
+| Release pipeline: every push to `main` publishes binaries the installer downloads | done |
+| Full-screen terminal programs (vim, nano, htop) | not yet |
 | Everything else in the roadmap | planned |
 
 ## Install
@@ -38,7 +40,16 @@ appanel disable-2fa       # lock-out recovery
 systemctl status appanel
 ```
 
-Installer options (environment variables): `APPANEL_VERSION`, `APPANEL_PORT`, `APPANEL_NO_TLS=1`.
+Installer options (environment variables): `APPANEL_VERSION`, `APPANEL_PORT`, `APPANEL_HOST`, `APPANEL_NO_TLS=1`. Running the installer again upgrades the binary and keeps your login and settings.
+
+Uninstall (keeps your data) or remove everything:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/usmanawa2153-beep/appanel/main/install.sh | sudo bash -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/usmanawa2153-beep/appanel/main/install.sh | sudo bash -s -- --uninstall --purge
+```
+
+Releases are built by GitHub Actions on every push to `main` (version `v0.1.<run number>`), or from a `v*` tag.
 
 ## Build from source
 
@@ -59,13 +70,14 @@ APPANEL_DATA=./data ./bin/appanel serve
 - State-changing requests need a custom CSRF header that browsers cannot send cross-site.
 - The UI builds all DOM with `textContent` and ships a strict Content-Security-Policy (no inline script or style).
 - The File Manager confines every path to its root, resolves symlinks before checking, writes atomically and never follows a symlink out of the root.
+- The terminal WebSocket needs a valid session and a same-origin `Origin` header (blocks cross-site hijacking), and is capped at 5 open terminals.
 - The panel runs as root because it has to manage the server. Treat access to it like root SSH access: keep 2FA on and the port firewalled where you can.
 
 Found a vulnerability? Please open a private security advisory on GitHub rather than a public issue.
 
 ## Roadmap
 
-1. **Phase 1:** installer, Go agent, auth, dashboard, File Manager, web terminal *(in progress)*
+1. **Phase 1:** installer, Go agent, auth, dashboard, File Manager, web terminal *(done, apart from full-screen terminal apps)*
 2. **Phase 2:** websites on Nginx, Let's Encrypt SSL, DNS provider APIs (Cloudflare and others)
 3. **Phase 3:** MySQL/Postgres and a database manager, cron, firewall, backups
 4. **Phase 4:** Node/Python/Docker app deploy, process manager, one-click apps
@@ -83,6 +95,8 @@ internal/files/     path-confined file operations
 internal/server/    HTTP API and security headers
 internal/store/     persistence (JSON file today, swappable)
 internal/system/    /proc metrics
+internal/term/      PTY shell sessions
+internal/ws/        WebSocket (RFC 6455) server
 internal/tlsutil/   self-signed certificate
 web/ui/             embedded dashboard
 install.sh          installer for Ubuntu/Debian

@@ -86,6 +86,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/2fa/enable", s.authed(s.handle2FAEnable))
 	mux.HandleFunc("POST /api/2fa/disable", s.authed(s.handle2FADisable))
 	mux.HandleFunc("GET /api/system", s.authed(s.handleSystem))
+	mux.HandleFunc("GET /api/terminal", s.authed(s.handleTerminal))
 
 	mux.HandleFunc("GET /api/files", s.authed(s.handleList))
 	mux.HandleFunc("GET /api/files/content", s.authed(s.handleRead))

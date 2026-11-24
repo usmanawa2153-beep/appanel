@@ -53,7 +53,7 @@ func main() {
 	case "disable-2fa":
 		err = cmdDisable2FA(os.Args[2:])
 	case "info":
-		err = cmdInfo()
+		err = cmdInfo(os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println("appanel", version)
 	case "help", "--help", "-h":
@@ -89,12 +89,17 @@ func cmdInit(args []string) error {
 	if err != nil {
 		return err
 	}
-	if created && !*noTLS {
-		cert, key, err := tlsutil.EnsureSelfSigned(dir, hosts)
-		if err != nil {
-			return err
+	if created {
+		if len(hosts) > 0 {
+			cfg.Host = hosts[0]
 		}
-		cfg.TLSCert, cfg.TLSKey = cert, key
+		if !*noTLS {
+			cert, key, err := tlsutil.EnsureSelfSigned(dir, hosts)
+			if err != nil {
+				return err
+			}
+			cfg.TLSCert, cfg.TLSKey = cert, key
+		}
 		if err := cfg.Save(dir); err != nil {
 			return err
 		}
@@ -132,7 +137,10 @@ func scheme(cfg *config.Config) string {
 }
 
 func printAccess(cfg *config.Config) {
-	host := cfg.Listen
+	host := cfg.Host
+	if host == "" {
+		host = cfg.Listen
+	}
 	if host == "0.0.0.0" || host == "::" || host == "" {
 		host = "<your-server-ip>"
 	}
@@ -142,10 +150,19 @@ func printAccess(cfg *config.Config) {
 	}
 }
 
-func cmdInfo() error {
+func cmdInfo(args []string) error {
+	fs := flag.NewFlagSet("info", flag.ContinueOnError)
+	portOnly := fs.Bool("port", false, "print only the listening port (for scripts)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 	cfg, err := config.Load(config.DefaultDataDir())
 	if err != nil {
 		return fmt.Errorf("not initialised (run `appanel init`): %w", err)
+	}
+	if *portOnly {
+		fmt.Println(cfg.Port)
+		return nil
 	}
 	printAccess(cfg)
 	fmt.Println()
