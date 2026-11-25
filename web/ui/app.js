@@ -13,7 +13,11 @@ const api = {
     let data = null;
     try { data = await res.json(); } catch { /* empty body */ }
     if (res.status === 401 && state.user) { state.user = null; render(); }
-    if (!res.ok) throw new Error((data && data.error) || `Request failed (${res.status})`);
+    if (!res.ok) {
+      const err = new Error((data && data.error) || `Request failed (${res.status})`);
+      err.log = data && data.log;
+      throw err;
+    }
     return data;
   },
   get: (u) => api.call("GET", u),
@@ -136,13 +140,14 @@ function shell() {
   const view = h("main", { class: "main" });
   const side = h("aside", { class: "side" },
     h("div", { class: "brand" }, h("img", { src: "favicon.svg", alt: "" }), "Appanel"),
-    h("nav", { class: "nav" }, link("/dashboard", "Dashboard"), link("/files", "File Manager"), link("/terminal", "Terminal"), link("/settings", "Settings")),
+    h("nav", { class: "nav" }, link("/dashboard", "Dashboard"), link("/websites", "Websites"), link("/files", "File Manager"), link("/terminal", "Terminal"), link("/settings", "Settings")),
     h("div", { class: "spacer" }),
     h("div", { class: "muted" }, `Signed in as ${state.user.username}`),
     h("div", { class: "row" },
       h("button", { class: "btn sm", onclick: toggleTheme }, "Theme"),
       h("button", { class: "btn sm", onclick: async () => { try { await api.post("api/logout"); } catch { /* already out */ } state.user = null; render(); } }, "Sign out")));
   if (path.startsWith("/files")) filesView(view);
+  else if (path.startsWith("/websites")) websitesView(view);
   else if (path.startsWith("/terminal")) terminalView(view);
   else if (path.startsWith("/settings")) settingsView(view);
   else dashboardView(view);
@@ -290,6 +295,112 @@ async function editorView(view, file) {
   catch (x) { notice.replaceChildren(h("div", { class: "msg err" }, x.message)); ta.disabled = true; save.disabled = true; }
 }
 
+/* ---- websites ---- */
+function websitesView(view) {
+  const notice = h("div");
+  const say = (m, ok, log) => notice.replaceChildren(
+    ...[m ? h("div", { class: "msg " + (ok ? "ok" : "err") }, m) : null,
+        log ? h("pre", { class: "log" }, log) : null].filter(Boolean));
+  const setupBox = h("div");
+  const formBox = h("div");
+  const listBox = h("div", { class: "card table-wrap" }, "Loading…");
+  view.append(h("div", { class: "topbar" }, h("h1", {}, "Websites")), notice, setupBox, formBox, listBox);
+
+  let status = null;
+
+  async function loadStatus() {
+    try { status = await api.get("api/sites/status"); } catch (x) { say(x.message); return; }
+    if (status.nginx_installed && status.certbot_installed) { setupBox.replaceChildren(); return; }
+    const php = h("input", { type: "checkbox" });
+    const btn = h("button", { class: "btn primary", onclick: async () => {
+      if (!confirm("Install Nginx and Certbot with apt now? This can take a few minutes.")) return;
+      btn.disabled = true; say("Installing… please keep this page open.", true);
+      try { const r = await api.post("api/sites/setup", { php: php.checked }); say("Installed.", true, r.log); await loadStatus(); drawForm(); }
+      catch (x) { say(x.message); } finally { btn.disabled = false; }
+    } }, "Install Nginx & Certbot");
+    setupBox.replaceChildren(h("div", { class: "card setup" },
+      h("h2", {}, "One-time setup"),
+      h("p", { class: "muted" }, "Websites need Nginx, and SSL certificates need Certbot. They are not installed on this server yet."),
+      h("label", { class: "row" }, php, "Also install PHP-FPM (for PHP sites)"), btn));
+  }
+
+  function drawForm() {
+    const domain = h("input", { type: "text", placeholder: "example.com", autocomplete: "off" });
+    const aliases = h("input", { type: "text", placeholder: "www.example.com, shop.example.com", autocomplete: "off" });
+    const type = h("select", {},
+      h("option", { value: "static" }, "Static website (HTML files)"),
+      h("option", { value: "php" }, "PHP website"),
+      h("option", { value: "proxy" }, "Reverse proxy (Node, Python, Docker app)"));
+    const proxy = h("input", { type: "text", placeholder: "http://127.0.0.1:3000", autocomplete: "off" });
+    const proxyField = h("label", { class: "field", hidden: true }, h("span", {}, "App address"), proxy);
+    type.addEventListener("change", () => { proxyField.hidden = type.value !== "proxy"; });
+    const btn = h("button", { class: "btn primary", type: "submit" }, "Add website");
+    formBox.replaceChildren(h("div", { class: "card" }, h("h2", {}, "Add a website"),
+      h("form", { onsubmit: async (e) => {
+        e.preventDefault(); btn.disabled = true; say("");
+        try {
+          await api.post("api/sites", {
+            domain: domain.value, type: type.value, proxy_url: proxy.value,
+            aliases: aliases.value.split(",").map((x) => x.trim()).filter(Boolean),
+          });
+          domain.value = aliases.value = proxy.value = "";
+          say("Website added. Point its DNS A record to this server, then issue SSL.", true);
+          loadList();
+        } catch (x) { say(x.message); } finally { btn.disabled = false; }
+      } },
+      h("div", { class: "grid2" },
+        h("label", { class: "field" }, h("span", {}, "Domain"), domain),
+        h("label", { class: "field" }, h("span", {}, "Extra names (optional, comma separated)"), aliases),
+        h("label", { class: "field" }, h("span", {}, "Type"), type), proxyField),
+      btn)));
+  }
+
+  const sslBadge = (s) => {
+    if (!s.ssl) return h("span", { class: "badge" }, "No SSL");
+    if (!s.cert) return h("span", { class: "badge ok" }, "SSL on");
+    const d = s.cert.days_left;
+    return h("span", { class: "badge " + (d < 10 ? "bad" : d < 25 ? "warn" : "ok") }, `SSL · ${d}d left`);
+  };
+
+  async function patch(s, body) {
+    try { await api.put("api/sites/" + s.id, body); say(""); loadList(); } catch (x) { say(x.message); }
+  }
+
+  async function loadList() {
+    let d;
+    try { d = await api.get("api/sites"); } catch (x) { listBox.replaceChildren(h("div", { class: "msg err" }, x.message)); return; }
+    if (!d.sites.length) { listBox.replaceChildren(h("p", { class: "muted" }, "No websites yet. Add your first one above.")); return; }
+    const rows = d.sites.map((s) => {
+      const scheme = s.ssl ? "https" : "http";
+      const typeName = { static: "Static", php: "PHP", proxy: "Proxy → " + s.proxy_url }[s.type] || s.type;
+      return h("tr", {},
+        h("td", { class: "name" },
+          h("a", { href: scheme + "://" + s.domain, target: "_blank", rel: "noopener noreferrer" }, s.domain),
+          (s.aliases || []).length ? h("div", { class: "muted small" }, s.aliases.join(", ")) : null),
+        h("td", { class: "muted" }, typeName),
+        h("td", {}, sslBadge(s), s.force_https ? h("span", { class: "badge" }, "HTTPS only") : null),
+        h("td", {}, h("span", { class: "badge " + (s.enabled ? "ok" : "") }, s.enabled ? "Enabled" : "Disabled")),
+        h("td", { class: "act" }, h("div", { class: "row" },
+          s.root ? h("button", { class: "btn sm", onclick: () => go("/files?path=" + encodeURIComponent(s.root)) }, "Files") : null,
+          !s.ssl ? h("button", { class: "btn sm", onclick: async (e) => {
+            const b = e.currentTarget; b.disabled = true; say("Requesting a certificate from Let's Encrypt…", true);
+            try { const r = await api.post("api/sites/" + s.id + "/ssl"); say("SSL certificate installed.", true, r.log); loadList(); }
+            catch (x) { say(x.message, false, x.log); } finally { b.disabled = false; }
+          } }, "Get SSL") : h("button", { class: "btn sm", onclick: () => patch(s, { force_https: !s.force_https }) }, s.force_https ? "Allow HTTP" : "Force HTTPS"),
+          h("button", { class: "btn sm", onclick: () => patch(s, { enabled: !s.enabled }) }, s.enabled ? "Disable" : "Enable"),
+          h("button", { class: "btn sm danger", onclick: async () => {
+            if (!confirm(`Remove ${s.domain} from Nginx? Its files and certificate are kept on the server.`)) return;
+            try { await api.del("api/sites/" + s.id); say(""); loadList(); } catch (x) { say(x.message); }
+          } }, "Remove"))));
+    });
+    listBox.replaceChildren(h("table", { class: "files sites" },
+      h("thead", {}, h("tr", {}, ["Website", "Type", "SSL", "Status", ""].map((t) => h("th", {}, t)))),
+      h("tbody", {}, rows)));
+  }
+
+  loadStatus().then(() => { drawForm(); loadList(); });
+}
+
 /* ---- terminal ---- */
 function terminalView(view) {
   const status = h("span", { class: "muted" }, "connecting…");
@@ -349,6 +460,19 @@ function settingsView(view) {
     h("label", { class: "field" }, h("span", {}, "New password (10+ characters)"), nw),
     h("button", { class: "btn primary", type: "submit" }, "Update password")));
 
+  const acmeMsg = h("div");
+  const email = h("input", { type: "text", placeholder: "you@example.com", autocomplete: "email" });
+  api.get("api/settings").then((x) => { email.value = x.acme_email || ""; }).catch(() => {});
+  const acmeCard = h("div", { class: "card" }, h("h2", {}, "Let's Encrypt"), acmeMsg,
+    h("p", { class: "muted" }, "Used when requesting free SSL certificates. Let's Encrypt emails this address before a certificate expires."),
+    h("form", { onsubmit: async (e) => {
+      e.preventDefault();
+      try { await api.put("api/settings", { acme_email: email.value }); say(acmeMsg, "Saved.", true); }
+      catch (x) { say(acmeMsg, x.message); }
+    } },
+    h("label", { class: "field" }, h("span", {}, "Contact email"), email),
+    h("button", { class: "btn primary", type: "submit" }, "Save")));
+
   const tfBody = h("div");
   const tfCard = h("div", { class: "card" }, h("h2", {}, "Two-factor authentication"), tfMsg, tfBody);
   function drawTwoFactor() {
@@ -380,7 +504,7 @@ function settingsView(view) {
     }
   }
   drawTwoFactor();
-  view.append(h("div", { class: "topbar" }, h("h1", {}, "Settings")), h("div", { class: "grid" }, pwCard, tfCard));
+  view.append(h("div", { class: "topbar" }, h("h1", {}, "Settings")), h("div", { class: "grid" }, acmeCard, pwCard, tfCard));
 }
 
 /* ---- boot ---- */

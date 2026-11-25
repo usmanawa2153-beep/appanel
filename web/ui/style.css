@@ -18,6 +18,7 @@
   --shadow: none;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; }
 body {
   background: var(--bg); color: var(--text);
@@ -105,6 +106,23 @@ table.files td.act { text-align: right; }
 .table-wrap, .msg { margin-top: 12px; }
 table.files td.act .row { justify-content: flex-end; flex-wrap: nowrap; }
 textarea.editor { font-family: var(--mono); font-size: 13px; min-height: 60vh; resize: vertical; white-space: pre; tab-size: 4; }
+
+/* websites */
+.grid2 { display: grid; gap: 0 16px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.badge { white-space: nowrap; display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--surface-2); color: var(--muted); margin-right: 6px; }
+.badge.ok { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+.badge.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+.badge.bad { background: color-mix(in srgb, var(--bad) 16%, transparent); color: var(--bad); }
+.small { font-size: 12px; }
+table.files.sites td.name { width: auto; min-width: 230px; max-width: none; overflow: visible; white-space: normal; overflow-wrap: break-word; }
+table.files.sites td { white-space: normal; overflow-wrap: anywhere; }
+table.files.sites td.act { min-width: 230px; }
+table.files.sites td.act .row { flex-wrap: wrap; row-gap: 6px; }
+table.files.sites td.name a { color: var(--accent); font-weight: 600; }
+pre.log { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; overflow: auto; max-height: 260px; font: 12px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; }
+.card.setup { border-color: var(--warn); margin-bottom: 12px; }
+#app select { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.card + .card, .msg + .card, div + .card.table-wrap { margin-top: 12px; }
 
 /* terminal */
 .term {

@@ -19,6 +19,7 @@ import (
 	"github.com/usmanawa2153-beep/appanel/internal/auth"
 	"github.com/usmanawa2153-beep/appanel/internal/config"
 	"github.com/usmanawa2153-beep/appanel/internal/files"
+	"github.com/usmanawa2153-beep/appanel/internal/sites"
 	"github.com/usmanawa2153-beep/appanel/internal/store"
 	"github.com/usmanawa2153-beep/appanel/internal/system"
 )
@@ -36,6 +37,7 @@ type Server struct {
 	sess    *auth.Sessions
 	lim     *auth.Limiter
 	sys     *system.Sampler
+	sites   *sites.Manager
 	fs      *files.FS
 	ui      fs.FS
 	version string
@@ -59,6 +61,7 @@ func New(cfg *config.Config, st *store.Store, ui fs.FS, version string) (*Server
 		sess:    auth.NewSessions(time.Duration(cfg.SessionHours) * time.Hour),
 		lim:     auth.NewLimiter(5, 10*time.Minute, 15*time.Minute),
 		sys:     system.NewSampler(),
+		sites:   sites.NewManager(st),
 		fs:      ffs,
 		ui:      ui,
 		version: version,
@@ -87,6 +90,17 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/2fa/disable", s.authed(s.handle2FADisable))
 	mux.HandleFunc("GET /api/system", s.authed(s.handleSystem))
 	mux.HandleFunc("GET /api/terminal", s.authed(s.handleTerminal))
+
+	mux.HandleFunc("GET /api/sites", s.authed(s.handleSiteList))
+	mux.HandleFunc("POST /api/sites", s.authed(s.handleSiteCreate))
+	mux.HandleFunc("GET /api/sites/status", s.authed(s.handleSiteStatus))
+	mux.HandleFunc("POST /api/sites/setup", s.authed(s.handleSiteSetup))
+	mux.HandleFunc("GET /api/sites/{id}", s.authed(s.handleSiteGet))
+	mux.HandleFunc("PUT /api/sites/{id}", s.authed(s.handleSiteUpdate))
+	mux.HandleFunc("DELETE /api/sites/{id}", s.authed(s.handleSiteDelete))
+	mux.HandleFunc("POST /api/sites/{id}/ssl", s.authed(s.handleSiteSSL))
+	mux.HandleFunc("GET /api/settings", s.authed(s.handleSettingsGet))
+	mux.HandleFunc("PUT /api/settings", s.authed(s.handleSettingsPut))
 
 	mux.HandleFunc("GET /api/files", s.authed(s.handleList))
 	mux.HandleFunc("GET /api/files/content", s.authed(s.handleRead))

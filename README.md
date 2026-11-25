@@ -18,8 +18,20 @@ A self-hosted hosting control panel for Ubuntu and Debian servers, in the spirit
 | File Manager: browse, edit, upload, download, rename, delete, new folder | done |
 | Web terminal: real root shell over WebSocket, colours, history, tab completion, Ctrl+C, resize | done |
 | Release pipeline: every push to `main` publishes binaries the installer downloads | done |
+| Websites: static, PHP and reverse-proxy (Node/Python/Docker) sites on Nginx; enable/disable/remove; `nginx -t` before every reload with automatic rollback | done |
+| Free SSL: Let's Encrypt via Certbot (HTTP-01), expiry shown in the panel, "Force HTTPS", auto-renewal | done |
+| One-click "Install Nginx & Certbot" (and optionally PHP-FPM) from the panel | done |
 | Full-screen terminal programs (vim, nano, htop) | not yet |
 | Everything else in the roadmap | planned |
+
+## Hosting a website
+
+1. **Settings → Let's Encrypt:** enter a contact email once.
+2. **Websites:** if Nginx and Certbot are missing, click *Install Nginx & Certbot*.
+3. **Add a website:** domain, optional extra names, and a type (static, PHP, or reverse proxy to an app on `http://127.0.0.1:PORT`). Files go in `/var/www/<domain>/public_html`; the *Files* button opens that folder.
+4. Point the domain's DNS A/AAAA record at the server, then click **Get SSL**. Afterwards you can switch on **Force HTTPS**. Certbot's timer renews certificates automatically and reloads Nginx.
+
+Removing a website only removes its Nginx config; its files and certificate stay on the server.
 
 ## Install
 
@@ -70,6 +82,7 @@ APPANEL_DATA=./data ./bin/appanel serve
 - State-changing requests need a custom CSRF header that browsers cannot send cross-site.
 - The UI builds all DOM with `textContent` and ships a strict Content-Security-Policy (no inline script or style).
 - The File Manager confines every path to its root, resolves symlinks before checking, writes atomically and never follows a symlink out of the root.
+- Everything written into an Nginx config (domains, aliases, proxy address, document root, PHP socket) is checked against a strict allowlist first, so a hostile value cannot inject directives. Configs are validated with `nginx -t` and rolled back if rejected.
 - The terminal WebSocket needs a valid session and a same-origin `Origin` header (blocks cross-site hijacking), and is capped at 5 open terminals.
 - The panel runs as root because it has to manage the server. Treat access to it like root SSH access: keep 2FA on and the port firewalled where you can.
 
@@ -78,7 +91,7 @@ Found a vulnerability? Please open a private security advisory on GitHub rather 
 ## Roadmap
 
 1. **Phase 1:** installer, Go agent, auth, dashboard, File Manager, web terminal *(done, apart from full-screen terminal apps)*
-2. **Phase 2:** websites on Nginx, Let's Encrypt SSL, DNS provider APIs (Cloudflare and others)
+2. **Phase 2:** websites on Nginx, Let's Encrypt SSL *(done)*; DNS provider APIs (Cloudflare and others), wildcard certificates *(next)*
 3. **Phase 3:** MySQL/Postgres and a database manager, cron, firewall, backups
 4. **Phase 4:** Node/Python/Docker app deploy, process manager, one-click apps
 5. **Phase 5:** Telegram/email alerts, AI assistant, REST API + CLI, multi-user accounts
@@ -93,6 +106,7 @@ internal/auth/      passwords, TOTP, sessions, rate limiting
 internal/config/    config file, random port and secret path
 internal/files/     path-confined file operations
 internal/server/    HTTP API and security headers
+internal/sites/     websites: validation, Nginx vhosts, Let's Encrypt
 internal/store/     persistence (JSON file today, swappable)
 internal/system/    /proc metrics
 internal/term/      PTY shell sessions

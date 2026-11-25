@@ -30,8 +30,10 @@ type User struct {
 }
 
 type data struct {
-	NextID int64  `json:"next_id"`
-	Users  []User `json:"users"`
+	NextID   int64    `json:"next_id"`
+	Users    []User   `json:"users"`
+	Sites    []Site   `json:"sites"`
+	Settings Settings `json:"settings"`
 }
 
 // Store is a concurrency-safe JSON-file store.

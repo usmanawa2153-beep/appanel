@@ -27,7 +27,9 @@ type env struct {
 	cli  *http.Client
 }
 
-func newEnv(t *testing.T) *env {
+func newEnv(t *testing.T) *env { return newEnvWith(t, nil) }
+
+func newEnvWith(t *testing.T, hook func(*Server)) *env {
 	t.Helper()
 	dir, root := t.TempDir(), t.TempDir()
 	st, err := store.Open(dir)
@@ -43,6 +45,9 @@ func newEnv(t *testing.T) *env {
 	srv, err := New(cfg, st, ui, "test")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if hook != nil {
+		hook(srv)
 	}
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
