@@ -28,7 +28,10 @@ type Site struct {
 	ForceHTTPS bool     `json:"force_https"`
 	// CertName is the domain whose certificate folder this site uses, set only
 	// when it shares a parent's wildcard certificate. Empty means its own.
-	CertName  string    `json:"cert_name,omitempty"`
+	CertName string `json:"cert_name,omitempty"`
+	// Panel marks the site that exposes the panel itself. It cannot be changed
+	// or removed from the Websites page, so the admin cannot cut off their own access.
+	Panel     bool      `json:"panel,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 

@@ -59,3 +59,27 @@ func TestValidate(t *testing.T) {
 		}
 	}
 }
+
+func TestPanelDomainListenAndTLS(t *testing.T) {
+	c := &Config{Listen: "0.0.0.0", Port: 23456, SecretPath: "/kkgwgifuiuriuriuyiug", TLSCert: "c", TLSKey: "k"}
+	c.applyDefaults()
+	if c.Addr() != "0.0.0.0:23456" || !c.UseTLS() || !c.SecureCookies() {
+		t.Errorf("without domain: %s tls=%v", c.Addr(), c.UseTLS())
+	}
+	c.PanelDomain = "panel.example.com"
+	if c.Addr() != "127.0.0.1:23456" || c.UseTLS() || !c.SecureCookies() {
+		t.Errorf("with domain: %s tls=%v secure=%v", c.Addr(), c.UseTLS(), c.SecureCookies())
+	}
+	if err := c.Validate(); err != nil {
+		t.Error(err)
+	}
+	for _, bad := range []string{"no_dots", "a b.com", "-x.com", "x.com/path", "UPPER.com"} {
+		c.PanelDomain = bad
+		if c.Validate() == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	if !ValidSecretPath("/kkgwgifuiuriuriuyiug") || ValidSecretPath("/short") || ValidSecretPath("/bad/slash") {
+		t.Error("ValidSecretPath")
+	}
+}

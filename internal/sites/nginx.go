@@ -153,7 +153,12 @@ func contentBlock(s store.Site) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return "    location / {\n" +
+		extra := ""
+		if s.Panel {
+			// Uploads of any size and a terminal that may sit idle for hours.
+			extra = "        client_max_body_size 0;\n        proxy_request_buffering off;\n        proxy_read_timeout 1d;\n        proxy_send_timeout 1d;\n"
+		}
+		return "    location / {\n" + extra +
 			"        proxy_pass " + u + ";\n" +
 			"        proxy_http_version 1.1;\n" +
 			"        proxy_set_header Host $host;\n" +

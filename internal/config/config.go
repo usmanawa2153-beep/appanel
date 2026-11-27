@@ -26,6 +26,9 @@ type Config struct {
 	TLSKey       string `json:"tls_key,omitempty"`
 	FileRoot     string `json:"file_root"`
 	SessionHours int    `json:"session_hours"`
+	// PanelDomain, when set, makes the panel listen on 127.0.0.1 only (plain
+	// HTTP) behind Nginx, and answer only requests addressed to this name.
+	PanelDomain string `json:"panel_domain,omitempty"`
 }
 
 // Options are the values that can be chosen at `appanel init` time.
@@ -33,6 +36,8 @@ type Options struct {
 	Listen string
 	Port   int // 0 = pick a random free port
 }
+
+var domainRe = regexp.MustCompile(`^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
 
 var secretPathRe = regexp.MustCompile(`^/[A-Za-z0-9_-]{8,64}$`)
 
@@ -56,7 +61,26 @@ func DefaultDataDir() string {
 func Path(dir string) string { return filepath.Join(dir, "config.json") }
 
 // Addr returns host:port for the HTTP listener.
-func (c *Config) Addr() string { return net.JoinHostPort(c.Listen, strconv.Itoa(c.Port)) }
+func (c *Config) Addr() string { return net.JoinHostPort(c.ListenHost(), strconv.Itoa(c.Port)) }
+
+// ListenHost is the address the panel binds to: loopback only once a panel
+// domain is attached, so the server's IP address never reaches the panel.
+func (c *Config) ListenHost() string {
+	if c.PanelDomain != "" {
+		return "127.0.0.1"
+	}
+	return c.Listen
+}
+
+// UseTLS reports whether the panel itself terminates TLS (self-signed). With
+// a panel domain, Nginx does that with a real certificate instead.
+func (c *Config) UseTLS() bool { return c.TLSCert != "" && c.PanelDomain == "" }
+
+// SecureCookies reports whether the browser reaches the panel over HTTPS.
+func (c *Config) SecureCookies() bool { return c.TLSCert != "" || c.PanelDomain != "" }
+
+// ValidSecretPath reports whether p is an acceptable login path.
+func ValidSecretPath(p string) bool { return secretPathRe.MatchString(p) }
 
 func (c *Config) applyDefaults() {
 	if c.Listen == "" {
@@ -77,6 +101,9 @@ func (c *Config) Validate() error {
 	}
 	if !secretPathRe.MatchString(c.SecretPath) {
 		return errors.New("config: secret_path must look like /abc123xyz (8-64 letters, digits, - or _)")
+	}
+	if c.PanelDomain != "" && !domainRe.MatchString(c.PanelDomain) {
+		return errors.New("config: panel_domain is not a valid domain name")
 	}
 	if (c.TLSCert == "") != (c.TLSKey == "") {
 		return errors.New("config: tls_cert and tls_key must be set together")

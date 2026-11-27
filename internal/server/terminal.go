@@ -54,7 +54,7 @@ func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer sh.Close()
-	logf("terminal opened by %s from %s", userFrom(r).Username, clientIP(r))
+	logf("terminal opened by %s from %s", userFrom(r).Username, s.clientIP(r))
 
 	done := make(chan struct{})
 

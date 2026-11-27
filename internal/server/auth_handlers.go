@@ -74,7 +74,7 @@ func (s *Server) throttled(w http.ResponseWriter, ip string) bool {
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	ip := clientIP(r)
+	ip := s.clientIP(r)
 	if s.throttled(w, ip) {
 		return
 	}
@@ -107,7 +107,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogin2FA(w http.ResponseWriter, r *http.Request) {
-	ip := clientIP(r)
+	ip := s.clientIP(r)
 	if s.throttled(w, ip) {
 		return
 	}
@@ -153,7 +153,7 @@ const minPasswordLen = 10
 
 func (s *Server) handlePassword(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r)
-	if s.throttled(w, clientIP(r)) {
+	if s.throttled(w, s.clientIP(r)) {
 		return
 	}
 	var in struct {
@@ -164,7 +164,7 @@ func (s *Server) handlePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !auth.VerifyPassword(in.Current, u.PasswordHash) {
-		s.lim.Fail(clientIP(r))
+		s.lim.Fail(s.clientIP(r))
 		writeErr(w, http.StatusForbidden, "current password is wrong")
 		return
 	}
@@ -230,7 +230,7 @@ func (s *Server) handle2FAEnable(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handle2FADisable(w http.ResponseWriter, r *http.Request) {
 	u := userFrom(r)
-	if s.throttled(w, clientIP(r)) {
+	if s.throttled(w, s.clientIP(r)) {
 		return
 	}
 	var in struct {
@@ -240,7 +240,7 @@ func (s *Server) handle2FADisable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !auth.VerifyPassword(in.Password, u.PasswordHash) {
-		s.lim.Fail(clientIP(r))
+		s.lim.Fail(s.clientIP(r))
 		writeErr(w, http.StatusForbidden, "password is wrong")
 		return
 	}

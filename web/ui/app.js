@@ -403,8 +403,8 @@ function websitesView(view) {
             try { const r = await api.post("api/sites/" + s.id + "/ssl/wildcard"); say("Wildcard certificate installed.", true, r.log); loadList(); }
             catch (x) { say(x.message, false, x.log); } finally { b.disabled = false; }
           } }, "Wildcard SSL"),
-          h("button", { class: "btn sm", onclick: () => patch(s, { enabled: !s.enabled }) }, s.enabled ? "Disable" : "Enable"),
-          h("button", { class: "btn sm danger", onclick: async () => {
+          s.panel ? h("span", { class: "badge ok" }, "Panel") : h("button", { class: "btn sm", onclick: () => patch(s, { enabled: !s.enabled }) }, s.enabled ? "Disable" : "Enable"),
+          s.panel ? null : h("button", { class: "btn sm danger", onclick: async () => {
             if (!confirm(`Remove ${s.domain} from Nginx? Its files and certificate are kept on the server.`)) return;
             try { await api.del("api/sites/" + s.id); say(""); loadList(); } catch (x) { say(x.message); }
           } }, "Remove"))));
@@ -898,7 +898,52 @@ function settingsView(view) {
     }
   }
   drawTwoFactor();
-  view.append(h("div", { class: "topbar" }, h("h1", {}, "Settings")), h("div", { class: "grid" }, acmeCard, pwCard, tfCard));
+  const domMsg = h("div"), pathMsg = h("div");
+  const domBody = h("div"), pathBody = h("div");
+  const done = (box, r, what) => box.replaceChildren(h("div", { class: "msg ok" }, what + " The panel is restarting; open the new address in about 5 seconds:"),
+    h("p", {}, h("a", { class: "mono", href: r.url }, r.url)), r.log ? h("pre", { class: "log" }, r.log) : null);
+  function drawDomain(st) {
+    const pw = h("input", { type: "password", autocomplete: "current-password" });
+    if (st.panel_domain) {
+      domBody.replaceChildren(h("p", {}, "The panel is served at ", h("span", { class: "mono" }, "https://" + st.panel_domain + st.login_path + "/"),
+        ". The server's IP address does not open the panel."),
+        h("label", { class: "field" }, h("span", {}, "Confirm password to remove the domain"), pw),
+        h("button", { class: "btn danger", onclick: async (e) => {
+          if (!confirm("Remove the panel domain? The panel will go back to its IP address and port.")) return;
+          const btn = e.currentTarget; btn.disabled = true;
+          try { done(domMsg, await api.call("DELETE", "api/panel/domain", { password: pw.value }), "Domain removed."); domBody.replaceChildren(); }
+          catch (x) { say(domMsg, x.message); btn.disabled = false; }
+        } }, "Remove domain"));
+    } else {
+      const dom = h("input", { type: "text", placeholder: "panel.example.com", autocomplete: "off", class: "mono" });
+      domBody.replaceChildren(h("p", { class: "muted" }, "Open the panel at your own domain with a real HTTPS certificate. Once attached, the server's IP address will no longer open the panel at all. Point the domain's A record to this server first (see the DNS tab), and set the Let's Encrypt email above."),
+        h("label", { class: "field" }, h("span", {}, "Domain"), dom),
+        h("label", { class: "field" }, h("span", {}, "Confirm password"), pw),
+        h("button", { class: "btn primary", onclick: async (e) => {
+          const btn = e.currentTarget; btn.disabled = true; say(domMsg, "Installing Nginx if needed and requesting the certificate, this can take a minute…", true);
+          try { done(domMsg, await api.post("api/panel/domain", { domain: dom.value, password: pw.value }), "Domain attached."); domBody.replaceChildren(); }
+          catch (x) { domMsg.replaceChildren(h("div", { class: "msg err" }, x.message), x.log ? h("pre", { class: "log" }, x.log) : null); btn.disabled = false; }
+        } }, "Attach domain"));
+    }
+  }
+  function drawPath(st) {
+    const path = h("input", { type: "text", autocomplete: "off", class: "mono" }); path.value = st.login_path;
+    const pw = h("input", { type: "password", autocomplete: "current-password" });
+    const send = async (e, body) => {
+      const btn = e.currentTarget; btn.disabled = true;
+      try { done(pathMsg, await api.post("api/panel/path", { ...body, password: pw.value }), "Login URL changed."); pathBody.replaceChildren(); }
+      catch (x) { say(pathMsg, x.message); btn.disabled = false; }
+    };
+    pathBody.replaceChildren(h("p", { class: "muted" }, "The panel only exists under this secret path; every other URL is a blank 404. Use letters, digits, - or _ (8–64 characters)."),
+      h("label", { class: "field" }, h("span", {}, "Login path"), path),
+      h("label", { class: "field" }, h("span", {}, "Confirm password"), pw),
+      h("div", { class: "row" }, h("button", { class: "btn primary", onclick: (e) => send(e, { path: path.value }) }, "Change login URL"),
+        h("button", { class: "btn", onclick: (e) => send(e, { random: true }) }, "Generate a random one")));
+  }
+  api.get("api/settings").then((x) => { drawDomain(x); drawPath(x); }).catch((x) => { say(domMsg, x.message); });
+  const domCard = h("div", { class: "card" }, h("h2", {}, "Panel domain"), domMsg, domBody);
+  const pathCard = h("div", { class: "card" }, h("h2", {}, "Login URL"), pathMsg, pathBody);
+  view.append(h("div", { class: "topbar" }, h("h1", {}, "Settings")), h("div", { class: "grid" }, domCard, pathCard, acmeCard, pwCard, tfCard));
 }
 
 /* ---- boot ---- */

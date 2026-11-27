@@ -21,6 +21,10 @@ func (r *okRunner) Run(_ context.Context, name string, args ...string) (string, 
 // newSiteEnv returns a test env whose website manager writes into a temp dir
 // and records the commands it would have run.
 func newSiteEnv(t *testing.T) (*env, *http.Cookie, *okRunner, string) {
+	return newSiteEnvHook(t, nil)
+}
+
+func newSiteEnvHook(t *testing.T, extra func(*Server)) (*env, *http.Cookie, *okRunner, string) {
 	t.Helper()
 	dir := t.TempDir()
 	fr := &okRunner{}
@@ -35,6 +39,9 @@ func newSiteEnv(t *testing.T) (*env, *http.Cookie, *okRunner, string) {
 		m.PHPSocketGlob = filepath.Join(dir, "none-*.sock")
 		m.LookPath = func(string) (string, error) { return "/usr/bin/fake", nil }
 		s.SetSiteManager(m)
+		if extra != nil {
+			extra(s)
+		}
 	})
 	return e, e.login(), fr, dir
 }

@@ -33,6 +33,8 @@ Usage:
   appanel serve
   appanel reset-password [--user NAME]
   appanel disable-2fa [--user NAME]
+  appanel domain set <domain> [--email you@example.com] | unset | show
+  appanel path show | set /your-secret-path | set --random
   appanel backup-all [--keep N]
   appanel info
   appanel version
@@ -55,6 +57,10 @@ func main() {
 		err = cmdReset(os.Args[2:])
 	case "disable-2fa":
 		err = cmdDisable2FA(os.Args[2:])
+	case "domain":
+		err = cmdDomain(os.Args[2:])
+	case "path":
+		err = cmdPath(os.Args[2:])
 	case "backup-all":
 		err = cmdBackupAll(os.Args[2:])
 	case "info":

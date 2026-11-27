@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"net"
 	"os"
 	"os/exec"
 	"os/user"
@@ -25,6 +26,7 @@ var (
 	ErrDuplicate      = errors.New("that domain or alias is already used by another website")
 	ErrNotFound       = errors.New("website not found")
 	ErrSiteDisabled   = errors.New("enable the website first")
+	ErrPanelSite      = errors.New("this website is the panel itself; use Settings → Panel domain to change or remove it")
 	ErrNoSSL          = errors.New("issue an SSL certificate before forcing HTTPS")
 )
 
@@ -55,6 +57,7 @@ type Manager struct {
 	CredDir        string // where the Cloudflare credentials file for certbot lives
 	PHPSocketGlob  string
 	LookPath       func(string) (string, error)
+	LookupHost     func(ctx context.Context, host string) ([]string, error)
 
 	mu sync.Mutex
 }
@@ -69,6 +72,7 @@ func NewManager(st *store.Store) *Manager {
 		ACMERoot:       "/var/www/_acme",
 		LetsEncryptDir: "/etc/letsencrypt",
 		CredDir:        "/etc/appanel",
+		LookupHost:     net.DefaultResolver.LookupHost,
 		LogDir:         "/var/log/nginx",
 		PHPSocketGlob:  "/run/php/php*-fpm.sock",
 		LookPath:       exec.LookPath,
@@ -387,6 +391,9 @@ func (m *Manager) Update(ctx context.Context, id int64, in UpdateInput) (store.S
 	if err != nil {
 		return store.Site{}, ErrNotFound
 	}
+	if old.Panel {
+		return store.Site{}, ErrPanelSite
+	}
 	s := old
 	s.Aliases = append([]string{}, old.Aliases...)
 	if in.Aliases != nil {
@@ -446,6 +453,9 @@ func (m *Manager) Delete(ctx context.Context, id int64) error {
 	s, err := m.Store.SiteByID(id)
 	if err != nil {
 		return ErrNotFound
+	}
+	if s.Panel {
+		return ErrPanelSite
 	}
 	wasEnabled := isLink(m.enabledPath(s.Domain))
 	_ = os.Remove(m.enabledPath(s.Domain))

@@ -48,6 +48,8 @@ type Server struct {
 	db      *databases.Manager
 	bk      *backups.Manager
 	dns     *dns.Client
+	dataDir string
+	restart func() // restarts the panel service; replaced in tests
 	fs      *files.FS
 	ui      fs.FS
 	version string
@@ -81,7 +83,9 @@ func New(cfg *config.Config, st *store.Store, ui fs.FS, version string) (*Server
 		fs:      ffs,
 		ui:      ui,
 		version: version,
-		secure:  cfg.TLSCert != "",
+		secure:  cfg.SecureCookies(),
+		dataDir: config.DefaultDataDir(),
+		restart: restartService,
 		dummy:   dummy,
 	}, nil
 }
@@ -149,6 +153,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/dns/zones/{zone}/records/{id}", s.authed(s.handleDNSUpdate))
 	mux.HandleFunc("DELETE /api/dns/zones/{zone}/records/{id}", s.authed(s.handleDNSDelete))
 	mux.HandleFunc("POST /api/dns/zones/{zone}/point", s.authed(s.handleDNSPoint))
+	mux.HandleFunc("POST /api/panel/domain", s.authed(s.handlePanelDomainSet))
+	mux.HandleFunc("DELETE /api/panel/domain", s.authed(s.handlePanelDomainUnset))
+	mux.HandleFunc("POST /api/panel/path", s.authed(s.handlePanelPath))
 	mux.HandleFunc("GET /api/settings", s.authed(s.handleSettingsGet))
 	mux.HandleFunc("PUT /api/settings", s.authed(s.handleSettingsPut))
 
@@ -168,6 +175,12 @@ func (s *Server) Handler() http.Handler {
 	inner := http.StripPrefix(prefix, mux)
 
 	root := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// With a panel domain attached the panel answers that name only, so
+		// reaching it by IP address (or any other name) gets a bare 404.
+		if d := s.cfg.PanelDomain; d != "" && !strings.EqualFold(hostOnly(r.Host), d) {
+			http.NotFound(w, r)
+			return
+		}
 		switch {
 		case r.URL.Path == prefix:
 			http.Redirect(w, r, prefix+"/", http.StatusMovedPermanently)
@@ -191,7 +204,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	errc := make(chan error, 1)
 	go func() {
-		if s.cfg.TLSCert != "" {
+		if s.cfg.UseTLS() {
 			errc <- srv.ListenAndServeTLS(s.cfg.TLSCert, s.cfg.TLSKey)
 		} else {
 			errc <- srv.ListenAndServe()
@@ -259,14 +272,31 @@ func decode(w http.ResponseWriter, r *http.Request, limit int64, v any) bool {
 	return true
 }
 
-// clientIP uses the socket address only. X-Forwarded-For is deliberately
-// ignored: it is client-controlled and would let attackers dodge the limiter.
-func clientIP(r *http.Request) string {
+// clientIP is the address of whoever is connecting. It is the socket address,
+// never a client-supplied header: X-Forwarded-For would let attackers dodge
+// the login limiter. The one exception is a panel domain, where every request
+// arrives from Nginx on loopback and Nginx overwrites X-Real-IP with the real
+// peer address; only then, and only from a loopback socket, is it believed.
+func (s *Server) clientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
+	}
+	if s.cfg.PanelDomain != "" {
+		if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+			if real := net.ParseIP(strings.TrimSpace(r.Header.Get("X-Real-IP"))); real != nil {
+				return real.String()
+			}
+		}
 	}
 	return host
+}
+
+func hostOnly(h string) string {
+	if host, _, err := net.SplitHostPort(h); err == nil {
+		return host
+	}
+	return h
 }
 
 func logf(format string, args ...any) { log.Printf(format, args...) }

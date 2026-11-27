@@ -199,7 +199,7 @@ func (s *Server) handleSiteUseWildcard(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSettingsGet(w http.ResponseWriter, _ *http.Request) {
 	st := s.st.Settings()
-	writeJSON(w, http.StatusOK, map[string]any{"acme_email": st.ACMEEmail, "cloudflare_configured": st.CloudflareToken != ""})
+	writeJSON(w, http.StatusOK, map[string]any{"acme_email": st.ACMEEmail, "cloudflare_configured": st.CloudflareToken != "", "panel_domain": s.cfg.PanelDomain, "login_path": s.cfg.SecretPath})
 }
 
 func (s *Server) handleSettingsPut(w http.ResponseWriter, r *http.Request) {
