@@ -21,6 +21,7 @@ A self-hosted hosting control panel for Ubuntu and Debian servers, in the spirit
 | Websites: static, PHP and reverse-proxy (Node/Python/Docker) sites on Nginx; enable/disable/remove; `nginx -t` before every reload with automatic rollback | done |
 | Cron jobs: schedule presets, validation, pause/resume, run now with output; written to `/etc/cron.d/appanel` | done |
 | Firewall (ufw): install, on/off, add/delete rules, quick presets; SSH and the panel port can never be closed by mistake | done |
+| Databases: install MariaDB/MySQL or PostgreSQL, create a database + user with a generated password (shown once), reset password, delete | done |
 | Free SSL: Let's Encrypt via Certbot (HTTP-01), expiry shown in the panel, "Force HTTPS", auto-renewal | done |
 | One-click "Install Nginx & Certbot" (and optionally PHP-FPM) from the panel | done |
 | Full-screen terminal programs (vim, nano, htop) | not yet |
@@ -112,6 +113,7 @@ internal/files/     path-confined file operations
 internal/server/    HTTP API and security headers
 internal/sites/     websites: validation, Nginx vhosts, Let's Encrypt
 internal/cron/      cron jobs rendered into /etc/cron.d
+internal/databases/ MariaDB/MySQL and PostgreSQL management
 internal/firewall/  ufw driver with lock-out protection
 internal/execx/     command runner interface (fakeable in tests)
 internal/store/     persistence (JSON file today, swappable)

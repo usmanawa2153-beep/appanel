@@ -124,6 +124,7 @@ pre.log { background: var(--surface-2); border: 1px solid var(--border); border-
 #app select { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .card + .card, .msg + .card, div + .card.table-wrap { margin-top: 12px; }
 
+.grow { flex: 1; min-width: 200px; }
 .row.between { justify-content: space-between; }
 input.mono { font-family: var(--mono); }
 

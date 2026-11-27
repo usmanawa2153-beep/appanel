@@ -19,6 +19,7 @@ import (
 	"github.com/usmanawa2153-beep/appanel/internal/auth"
 	"github.com/usmanawa2153-beep/appanel/internal/config"
 	"github.com/usmanawa2153-beep/appanel/internal/cron"
+	"github.com/usmanawa2153-beep/appanel/internal/databases"
 	"github.com/usmanawa2153-beep/appanel/internal/files"
 	"github.com/usmanawa2153-beep/appanel/internal/firewall"
 	"github.com/usmanawa2153-beep/appanel/internal/sites"
@@ -42,6 +43,7 @@ type Server struct {
 	sites   *sites.Manager
 	cron    *cron.Manager
 	fw      *firewall.Manager
+	db      *databases.Manager
 	fs      *files.FS
 	ui      fs.FS
 	version string
@@ -68,6 +70,7 @@ func New(cfg *config.Config, st *store.Store, ui fs.FS, version string) (*Server
 		sites:   sites.NewManager(st),
 		cron:    cron.NewManager(st),
 		fw:      firewall.NewManager(func() int { return cfg.Port }),
+		db:      databases.NewManager(),
 		fs:      ffs,
 		ui:      ui,
 		version: version,
@@ -117,6 +120,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/firewall/disable", s.authed(s.handleFirewallDisable))
 	mux.HandleFunc("POST /api/firewall/rules", s.authed(s.handleFirewallAdd))
 	mux.HandleFunc("DELETE /api/firewall/rules/{n}", s.authed(s.handleFirewallDelete))
+	mux.HandleFunc("GET /api/databases", s.authed(s.handleDBList))
+	mux.HandleFunc("POST /api/databases/{engine}/install", s.authed(s.handleDBInstall))
+	mux.HandleFunc("POST /api/databases/{engine}", s.authed(s.handleDBCreate))
+	mux.HandleFunc("DELETE /api/databases/{engine}/{name}", s.authed(s.handleDBDrop))
+	mux.HandleFunc("POST /api/databases/{engine}/{name}/password", s.authed(s.handleDBPassword))
 	mux.HandleFunc("GET /api/settings", s.authed(s.handleSettingsGet))
 	mux.HandleFunc("PUT /api/settings", s.authed(s.handleSettingsPut))
 

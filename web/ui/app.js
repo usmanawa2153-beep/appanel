@@ -140,7 +140,7 @@ function shell() {
   const view = h("main", { class: "main" });
   const side = h("aside", { class: "side" },
     h("div", { class: "brand" }, h("img", { src: "favicon.svg", alt: "" }), "Appanel"),
-    h("nav", { class: "nav" }, link("/dashboard", "Dashboard"), link("/websites", "Websites"), link("/files", "File Manager"), link("/terminal", "Terminal"), link("/cron", "Cron jobs"), link("/firewall", "Firewall"), link("/settings", "Settings")),
+    h("nav", { class: "nav" }, link("/dashboard", "Dashboard"), link("/websites", "Websites"), link("/files", "File Manager"), link("/terminal", "Terminal"), link("/databases", "Databases"), link("/cron", "Cron jobs"), link("/firewall", "Firewall"), link("/settings", "Settings")),
     h("div", { class: "spacer" }),
     h("div", { class: "muted" }, `Signed in as ${state.user.username}`),
     h("div", { class: "row" },
@@ -149,6 +149,7 @@ function shell() {
   if (path.startsWith("/files")) filesView(view);
   else if (path.startsWith("/websites")) websitesView(view);
   else if (path.startsWith("/terminal")) terminalView(view);
+  else if (path.startsWith("/databases")) databasesView(view);
   else if (path.startsWith("/cron")) cronView(view);
   else if (path.startsWith("/firewall")) firewallView(view);
   else if (path.startsWith("/settings")) settingsView(view);
@@ -403,6 +404,69 @@ function websitesView(view) {
   loadStatus().then(() => { drawForm(); loadList(); });
 }
 
+/* ---- databases ---- */
+function databasesView(view) {
+  const notice = h("div");
+  const say = (m, ok, log) => notice.replaceChildren(
+    ...[m ? h("div", { class: "msg " + (ok ? "ok" : "err") }, m) : null, log ? h("pre", { class: "log" }, log) : null].filter(Boolean));
+  const secretBox = h("div"), body = h("div");
+  view.append(h("div", { class: "topbar" }, h("h1", {}, "Databases")), notice, secretBox, body);
+  const LABEL = { mysql: "MariaDB / MySQL", postgres: "PostgreSQL" };
+  const human = (n) => n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : n < 1073741824 ? (n / 1048576).toFixed(1) + " MB" : (n / 1073741824).toFixed(2) + " GB";
+
+  function showSecret(c) {
+    const cs = c.engine === "mysql"
+      ? `mysql://${c.user}:${c.password}@${c.host}:${c.port}/${c.name}`
+      : `postgresql://${c.user}:${c.password}@${c.host}:${c.port}/${c.name}`;
+    secretBox.replaceChildren(h("div", { class: "card setup" }, h("h2", {}, "Save these details now"),
+      h("p", { class: "muted" }, "The password is shown only once and is not stored anywhere."),
+      h("dl", { class: "kv" }, h("dt", {}, "Database"), h("dd", { class: "mono" }, c.name), h("dt", {}, "User"), h("dd", { class: "mono" }, c.user),
+        h("dt", {}, "Password"), h("dd", { class: "mono" }, c.password), h("dt", {}, "Host"), h("dd", { class: "mono" }, c.host + ":" + c.port),
+        h("dt", {}, "URL"), h("dd", { class: "mono" }, cs)),
+      h("div", { class: "row" }, h("button", { class: "btn sm", onclick: () => secretBox.replaceChildren() }, "I have saved it"))));
+  }
+
+  async function load() {
+    let d;
+    try { d = await api.get("api/databases"); } catch (x) { body.replaceChildren(h("div", { class: "msg err" }, x.message)); return; }
+    body.replaceChildren(...d.engines.map((en) => {
+      const card = h("div", { class: "card" }, h("h2", {}, LABEL[en.engine]));
+      if (!en.installed) {
+        const b = h("button", { class: "btn primary", onclick: async () => {
+          b.disabled = true; say("Installing " + LABEL[en.engine] + ", this can take a few minutes…", true);
+          try { const r = await api.post("api/databases/" + en.engine + "/install"); say("Installed.", true, r.log); load(); }
+          catch (x) { say(x.message, false, x.log); } finally { b.disabled = false; }
+        } }, "Install " + LABEL[en.engine]);
+        card.append(h("p", { class: "muted" }, "Not installed."), b);
+        return card;
+      }
+      if (!en.running) { card.append(h("div", { class: "msg err" }, en.error || "The server is installed but not answering.")); return card; }
+      const name = h("input", { type: "text", placeholder: "new_database_name", autocomplete: "off", class: "mono" });
+      card.append(h("form", { class: "row", onsubmit: async (e) => {
+        e.preventDefault();
+        try { const c = await api.post("api/databases/" + en.engine, { name: name.value }); say(""); showSecret(c); name.value = ""; load(); }
+        catch (x) { say(x.message); }
+      } }, h("div", { class: "grow" }, name), h("button", { class: "btn primary", type: "submit" }, "Create database + user")));
+      card.append(en.databases.length ? h("div", { class: "table-wrap" }, h("table", { class: "files sites" },
+        h("thead", {}, h("tr", {}, ["Database", "Size", ""].map((t) => h("th", {}, t)))),
+        h("tbody", {}, en.databases.map((db) => h("tr", {},
+          h("td", { class: "name mono" }, db.name), h("td", { class: "muted" }, human(db.bytes)),
+          h("td", { class: "act" }, h("div", { class: "row" },
+            h("button", { class: "btn sm", onclick: async () => {
+              if (!confirm(`Set a new password for user "${db.name}"? Apps using the old one will stop working.`)) return;
+              try { showSecret(await api.post("api/databases/" + en.engine + "/" + db.name + "/password")); } catch (x) { say(x.message); }
+            } }, "New password"),
+            h("button", { class: "btn sm danger", onclick: async () => {
+              const typed = prompt(`This permanently deletes the database "${db.name}" and its user. Type the database name to confirm:`);
+              if (typed !== db.name) return;
+              try { await api.del("api/databases/" + en.engine + "/" + db.name); say("Database deleted.", true); load(); } catch (x) { say(x.message); }
+            } }, "Delete")))))))) : h("p", { class: "muted" }, "No databases yet."));
+      return card;
+    }));
+  }
+  load();
+}
+
 /* ---- cron ---- */
 const CRON_PRESETS = [
   ["Every minute", "* * * * *"], ["Every 5 minutes", "*/5 * * * *"], ["Every hour", "0 * * * *"],
@@ -443,7 +507,7 @@ function cronView(view) {
         h("label", { class: "field" }, h("span", {}, "Schedule (minute hour day month weekday)"), sched)),
       h("label", { class: "field" }, h("span", {}, "Command (runs as root)"), cmd),
       h("label", { class: "row" }, on, "Enabled"),
-      h("div", { class: "row", style: null }, btn, editing ? h("button", { class: "btn", type: "button", onclick: () => { editing = null; drawForm(); } }, "Cancel") : null))));
+      h("div", { class: "row" }, btn, editing ? h("button", { class: "btn", type: "button", onclick: () => { editing = null; drawForm(); } }, "Cancel") : null))));
   }
 
   async function loadList() {
