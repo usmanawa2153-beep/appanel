@@ -115,6 +115,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/sites/{id}", s.authed(s.handleSiteUpdate))
 	mux.HandleFunc("DELETE /api/sites/{id}", s.authed(s.handleSiteDelete))
 	mux.HandleFunc("POST /api/sites/{id}/ssl", s.authed(s.handleSiteSSL))
+	mux.HandleFunc("POST /api/sites/{id}/ssl/wildcard", s.authed(s.handleSiteWildcard))
+	mux.HandleFunc("POST /api/sites/{id}/ssl/use-wildcard", s.authed(s.handleSiteUseWildcard))
 	mux.HandleFunc("GET /api/cron", s.authed(s.handleCronList))
 	mux.HandleFunc("POST /api/cron", s.authed(s.handleCronCreate))
 	mux.HandleFunc("PUT /api/cron/{id}", s.authed(s.handleCronUpdate))

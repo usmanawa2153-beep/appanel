@@ -24,6 +24,7 @@ A self-hosted hosting control panel for Ubuntu and Debian servers, in the spirit
 | Databases: install MariaDB/MySQL or PostgreSQL, create a database + user with a generated password (shown once), reset password, delete | done |
 | Backups: site files (tar.gz) and database dumps, download, restore, delete; one-click nightly backups keeping the newest 7 (`appanel backup-all`) | done |
 | DNS (Cloudflare): connect an API token, list domains, add/edit/delete records, one-click "point this name to my server" | done |
+| Wildcard SSL: one certificate for `domain` and `*.domain` via Cloudflare DNS-01; subdomain sites can reuse it with one click | done |
 | Free SSL: Let's Encrypt via Certbot (HTTP-01), expiry shown in the panel, "Force HTTPS", auto-renewal | done |
 | One-click "Install Nginx & Certbot" (and optionally PHP-FPM) from the panel | done |
 | Full-screen terminal programs (vim, nano, htop) | not yet |
@@ -91,6 +92,7 @@ APPANEL_DATA=./data ./bin/appanel serve
 - The firewall always allows SSH and the panel port before turning on, and refuses to delete the rule that keeps them open. Deletes are checked against what the UI showed, so a stale list cannot remove the wrong rule.
 - Backups live in `/var/backups/appanel` (mode 0700, files 0600). File names are validated against an exact pattern and symlinks are never followed, so a download or delete can never reach outside that folder. A failed or empty backup is discarded instead of kept.
 - The Cloudflare token is checked with Cloudflare before it is saved, is stored only in the panel's private data file, is sent only in an Authorization header, and is never returned by any API call. "Point to server" refuses to overwrite a CNAME so mail and other records are not broken silently.
+- For wildcard certificates the Cloudflare token is also written to `/etc/appanel/cloudflare.ini` (folder 0700, file 0600) because certbot needs it for automatic renewals. If you change the token, request the wildcard certificate again so renewals use the new one.
 - Cron commands run as root; they are single-line only and `%` is escaped so a command cannot be split.
 - The terminal WebSocket needs a valid session and a same-origin `Origin` header (blocks cross-site hijacking), and is capped at 5 open terminals.
 - The panel runs as root because it has to manage the server. Treat access to it like root SSH access: keep 2FA on and the port firewalled where you can.
@@ -100,7 +102,7 @@ Found a vulnerability? Please open a private security advisory on GitHub rather 
 ## Roadmap
 
 1. **Phase 1:** installer, Go agent, auth, dashboard, File Manager, web terminal *(done, apart from full-screen terminal apps)*
-2. **Phase 2:** websites on Nginx, Let's Encrypt SSL *(done)*; Cloudflare DNS *(done)*; other DNS providers and wildcard certificates *(next)*
+2. **Phase 2:** websites on Nginx, Let's Encrypt SSL *(done)*; Cloudflare DNS and wildcard certificates *(done)*; other DNS providers *(later)*
 3. **Phase 3:** MySQL/Postgres and a database manager, cron, firewall, backups
 4. **Phase 4:** Node/Python/Docker app deploy, process manager, one-click apps
 5. **Phase 5:** Telegram/email alerts, AI assistant, REST API + CLI, multi-user accounts

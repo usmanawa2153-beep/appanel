@@ -15,18 +15,21 @@ const (
 // Site is one website served by Nginx. OwnerID is set from day one so
 // per-user accounts can be added later without a migration.
 type Site struct {
-	ID         int64     `json:"id"`
-	OwnerID    int64     `json:"owner_id"`
-	Domain     string    `json:"domain"`
-	Aliases    []string  `json:"aliases"`
-	Type       string    `json:"type"`
-	Root       string    `json:"root,omitempty"`
-	ProxyURL   string    `json:"proxy_url,omitempty"`
-	PHPSocket  string    `json:"php_socket,omitempty"`
-	Enabled    bool      `json:"enabled"`
-	SSL        bool      `json:"ssl"`
-	ForceHTTPS bool      `json:"force_https"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID         int64    `json:"id"`
+	OwnerID    int64    `json:"owner_id"`
+	Domain     string   `json:"domain"`
+	Aliases    []string `json:"aliases"`
+	Type       string   `json:"type"`
+	Root       string   `json:"root,omitempty"`
+	ProxyURL   string   `json:"proxy_url,omitempty"`
+	PHPSocket  string   `json:"php_socket,omitempty"`
+	Enabled    bool     `json:"enabled"`
+	SSL        bool     `json:"ssl"`
+	ForceHTTPS bool     `json:"force_https"`
+	// CertName is the domain whose certificate folder this site uses, set only
+	// when it shares a parent's wildcard certificate. Empty means its own.
+	CertName  string    `json:"cert_name,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // Names returns the domain followed by its aliases.

@@ -103,12 +103,16 @@ func RenderVhost(s store.Site, o RenderOptions) (string, error) {
 			mode = modeRedirect
 		}
 	}
+	certDir := s.Domain
+	if s.CertName != "" {
+		certDir = s.CertName
+	}
 	d := vhostData{
 		Site:     s,
 		Names:    strings.Join(s.Names(), " "),
 		Opt:      o,
-		CertPath: o.LetsEncryptDir + "/live/" + s.Domain + "/fullchain.pem",
-		KeyPath:  o.LetsEncryptDir + "/live/" + s.Domain + "/privkey.pem",
+		CertPath: o.LetsEncryptDir + "/live/" + certDir + "/fullchain.pem",
+		KeyPath:  o.LetsEncryptDir + "/live/" + certDir + "/privkey.pem",
 		Mode:     mode,
 		Content:  content,
 		ACMEBlock: "    location ^~ /.well-known/acme-challenge/ {\n" +

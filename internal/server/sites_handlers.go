@@ -152,6 +152,51 @@ func (s *Server) handleSiteSSL(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"site": s.sites.View(site), "log": out})
 }
 
+func (s *Server) handleSiteWildcard(w http.ResponseWriter, r *http.Request) {
+	id, ok := siteID(r)
+	if !ok {
+		writeErr(w, http.StatusNotFound, "website not found")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	defer cancel()
+	site, out, err := s.sites.IssueWildcardSSL(ctx, id)
+	if err != nil {
+		code := http.StatusBadRequest
+		switch {
+		case errors.Is(err, sites.ErrNotFound):
+			code = http.StatusNotFound
+		case errors.Is(err, sites.ErrNoEmail), errors.Is(err, sites.ErrCertbotMissing), errors.Is(err, sites.ErrSiteDisabled), errors.Is(err, sites.ErrNoCloudflare):
+			code = http.StatusPreconditionFailed
+		}
+		writeJSON(w, code, map[string]any{"error": err.Error(), "log": out})
+		return
+	}
+	logf("wildcard ssl issued for %s by %s", site.Domain, userFrom(r).Username)
+	writeJSON(w, http.StatusOK, map[string]any{"site": s.sites.View(site), "log": out})
+}
+
+func (s *Server) handleSiteUseWildcard(w http.ResponseWriter, r *http.Request) {
+	id, ok := siteID(r)
+	if !ok {
+		writeErr(w, http.StatusNotFound, "website not found")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	site, err := s.sites.UseWildcardSSL(ctx, id)
+	if err != nil {
+		code := http.StatusBadRequest
+		if errors.Is(err, sites.ErrNotFound) {
+			code = http.StatusNotFound
+		}
+		writeErr(w, code, err.Error())
+		return
+	}
+	logf("site %s switched to wildcard certificate by %s", site.Domain, userFrom(r).Username)
+	writeJSON(w, http.StatusOK, map[string]any{"site": s.sites.View(site)})
+}
+
 func (s *Server) handleSettingsGet(w http.ResponseWriter, _ *http.Request) {
 	st := s.st.Settings()
 	writeJSON(w, http.StatusOK, map[string]any{"acme_email": st.ACMEEmail, "cloudflare_configured": st.CloudflareToken != ""})

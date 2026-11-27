@@ -392,6 +392,17 @@ function websitesView(view) {
             try { const r = await api.post("api/sites/" + s.id + "/ssl"); say("SSL certificate installed.", true, r.log); loadList(); }
             catch (x) { say(x.message, false, x.log); } finally { b.disabled = false; }
           } }, "Get SSL") : h("button", { class: "btn sm", onclick: () => patch(s, { force_https: !s.force_https }) }, s.force_https ? "Allow HTTP" : "Force HTTPS"),
+          s.wildcard_from ? h("button", { class: "btn sm", onclick: async (e) => {
+            const b = e.currentTarget; b.disabled = true;
+            try { await api.post("api/sites/" + s.id + "/ssl/use-wildcard"); say("Now using the *." + s.wildcard_from + " certificate.", true); loadList(); }
+            catch (x) { say(x.message); } finally { b.disabled = false; }
+          } }, "Use *." + s.wildcard_from + " cert") : null,
+          h("button", { class: "btn sm", onclick: async (e) => {
+            if (!confirm(`Get one certificate for ${s.domain} and *.${s.domain}? It is verified through your Cloudflare account (DNS tab must be connected). This can take a minute.`)) return;
+            const b = e.currentTarget; b.disabled = true; say("Requesting a wildcard certificate, this takes about a minute…", true);
+            try { const r = await api.post("api/sites/" + s.id + "/ssl/wildcard"); say("Wildcard certificate installed.", true, r.log); loadList(); }
+            catch (x) { say(x.message, false, x.log); } finally { b.disabled = false; }
+          } }, "Wildcard SSL"),
           h("button", { class: "btn sm", onclick: () => patch(s, { enabled: !s.enabled }) }, s.enabled ? "Disable" : "Enable"),
           h("button", { class: "btn sm danger", onclick: async () => {
             if (!confirm(`Remove ${s.domain} from Nginx? Its files and certificate are kept on the server.`)) return;

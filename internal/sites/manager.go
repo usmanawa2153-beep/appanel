@@ -52,6 +52,7 @@ type Manager struct {
 	ACMERoot       string
 	LetsEncryptDir string
 	LogDir         string
+	CredDir        string // where the Cloudflare credentials file for certbot lives
 	PHPSocketGlob  string
 	LookPath       func(string) (string, error)
 
@@ -67,6 +68,7 @@ func NewManager(st *store.Store) *Manager {
 		WebRoot:        "/var/www",
 		ACMERoot:       "/var/www/_acme",
 		LetsEncryptDir: "/etc/letsencrypt",
+		CredDir:        "/etc/appanel",
 		LogDir:         "/var/log/nginx",
 		PHPSocketGlob:  "/run/php/php*-fpm.sock",
 		LookPath:       exec.LookPath,
@@ -501,7 +503,7 @@ func (m *Manager) IssueSSL(ctx context.Context, id int64) (store.Site, string, e
 		return store.Site{}, tail(out, 3000), fmt.Errorf("Let's Encrypt could not issue the certificate. Check that %s points to this server (DNS A/AAAA record) and that port 80 is reachable from the internet", strings.Join(old.Names(), ", "))
 	}
 	s := old
-	s.SSL = true
+	s.SSL, s.CertName = true, ""
 	if err := m.Store.UpdateSite(s); err != nil {
 		return store.Site{}, out, err
 	}
@@ -518,6 +520,8 @@ func (m *Manager) IssueSSL(ctx context.Context, id int64) (store.Site, string, e
 type SiteView struct {
 	store.Site
 	Cert *CertInfo `json:"cert,omitempty"`
+	// WildcardFrom names a parent domain whose wildcard certificate could serve this site.
+	WildcardFrom string `json:"wildcard_from,omitempty"`
 }
 
 // View attaches certificate details when the site has SSL.
@@ -527,9 +531,16 @@ func (m *Manager) View(s store.Site) SiteView {
 	}
 	v := SiteView{Site: s}
 	if s.SSL {
-		if ci, err := m.CertInfo(s.Domain); err == nil {
+		name := s.Domain
+		if s.CertName != "" {
+			name = s.CertName
+		}
+		if ci, err := m.CertInfo(name); err == nil {
 			v.Cert = ci
 		}
+	}
+	if s.CertName == "" {
+		v.WildcardFrom = m.wildcardParent(s.Domain)
 	}
 	return v
 }

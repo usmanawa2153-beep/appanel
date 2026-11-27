@@ -197,3 +197,34 @@ func contains(calls []string, prefix string) bool {
 	}
 	return false
 }
+
+func TestWildcardSSLAPI(t *testing.T) {
+	e, ck, fr, _ := newSiteEnv(t)
+	res := e.do("POST", secret+"/api/sites", map[string]any{"domain": "example.com", "type": "static"}, ck, true)
+	var s struct {
+		ID int64 `json:"id"`
+	}
+	decodeBody(t, res, &s)
+	id := i64(s.ID)
+
+	res = e.do("POST", secret+"/api/sites/"+id+"/ssl/wildcard", nil, ck, false)
+	res.Body.Close()
+	if res.StatusCode != http.StatusForbidden {
+		t.Errorf("no CSRF = %d", res.StatusCode)
+	}
+	res = e.do("POST", secret+"/api/sites/"+id+"/ssl/wildcard", nil, ck, true)
+	res.Body.Close()
+	if res.StatusCode != http.StatusPreconditionFailed { // no ACME email yet
+		t.Errorf("no email = %d", res.StatusCode)
+	}
+	for _, c := range fr.calls {
+		if strings.HasPrefix(c, "certbot certonly") {
+			t.Errorf("certbot ran without prerequisites: %s", c)
+		}
+	}
+	res = e.do("POST", secret+"/api/sites/"+id+"/ssl/use-wildcard", nil, ck, true)
+	res.Body.Close()
+	if res.StatusCode != http.StatusBadRequest {
+		t.Errorf("use-wildcard without cert = %d", res.StatusCode)
+	}
+}
