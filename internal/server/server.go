@@ -18,7 +18,9 @@ import (
 
 	"github.com/usmanawa2153-beep/appanel/internal/auth"
 	"github.com/usmanawa2153-beep/appanel/internal/config"
+	"github.com/usmanawa2153-beep/appanel/internal/cron"
 	"github.com/usmanawa2153-beep/appanel/internal/files"
+	"github.com/usmanawa2153-beep/appanel/internal/firewall"
 	"github.com/usmanawa2153-beep/appanel/internal/sites"
 	"github.com/usmanawa2153-beep/appanel/internal/store"
 	"github.com/usmanawa2153-beep/appanel/internal/system"
@@ -38,6 +40,8 @@ type Server struct {
 	lim     *auth.Limiter
 	sys     *system.Sampler
 	sites   *sites.Manager
+	cron    *cron.Manager
+	fw      *firewall.Manager
 	fs      *files.FS
 	ui      fs.FS
 	version string
@@ -62,6 +66,8 @@ func New(cfg *config.Config, st *store.Store, ui fs.FS, version string) (*Server
 		lim:     auth.NewLimiter(5, 10*time.Minute, 15*time.Minute),
 		sys:     system.NewSampler(),
 		sites:   sites.NewManager(st),
+		cron:    cron.NewManager(st),
+		fw:      firewall.NewManager(func() int { return cfg.Port }),
 		fs:      ffs,
 		ui:      ui,
 		version: version,
@@ -99,6 +105,18 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/sites/{id}", s.authed(s.handleSiteUpdate))
 	mux.HandleFunc("DELETE /api/sites/{id}", s.authed(s.handleSiteDelete))
 	mux.HandleFunc("POST /api/sites/{id}/ssl", s.authed(s.handleSiteSSL))
+	mux.HandleFunc("GET /api/cron", s.authed(s.handleCronList))
+	mux.HandleFunc("POST /api/cron", s.authed(s.handleCronCreate))
+	mux.HandleFunc("PUT /api/cron/{id}", s.authed(s.handleCronUpdate))
+	mux.HandleFunc("DELETE /api/cron/{id}", s.authed(s.handleCronDelete))
+	mux.HandleFunc("POST /api/cron/{id}/run", s.authed(s.handleCronRun))
+
+	mux.HandleFunc("GET /api/firewall", s.authed(s.handleFirewallStatus))
+	mux.HandleFunc("POST /api/firewall/install", s.authed(s.handleFirewallInstall))
+	mux.HandleFunc("POST /api/firewall/enable", s.authed(s.handleFirewallEnable))
+	mux.HandleFunc("POST /api/firewall/disable", s.authed(s.handleFirewallDisable))
+	mux.HandleFunc("POST /api/firewall/rules", s.authed(s.handleFirewallAdd))
+	mux.HandleFunc("DELETE /api/firewall/rules/{n}", s.authed(s.handleFirewallDelete))
 	mux.HandleFunc("GET /api/settings", s.authed(s.handleSettingsGet))
 	mux.HandleFunc("PUT /api/settings", s.authed(s.handleSettingsPut))
 

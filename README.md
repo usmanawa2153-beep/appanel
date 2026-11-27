@@ -19,6 +19,8 @@ A self-hosted hosting control panel for Ubuntu and Debian servers, in the spirit
 | Web terminal: real root shell over WebSocket, colours, history, tab completion, Ctrl+C, resize | done |
 | Release pipeline: every push to `main` publishes binaries the installer downloads | done |
 | Websites: static, PHP and reverse-proxy (Node/Python/Docker) sites on Nginx; enable/disable/remove; `nginx -t` before every reload with automatic rollback | done |
+| Cron jobs: schedule presets, validation, pause/resume, run now with output; written to `/etc/cron.d/appanel` | done |
+| Firewall (ufw): install, on/off, add/delete rules, quick presets; SSH and the panel port can never be closed by mistake | done |
 | Free SSL: Let's Encrypt via Certbot (HTTP-01), expiry shown in the panel, "Force HTTPS", auto-renewal | done |
 | One-click "Install Nginx & Certbot" (and optionally PHP-FPM) from the panel | done |
 | Full-screen terminal programs (vim, nano, htop) | not yet |
@@ -83,6 +85,8 @@ APPANEL_DATA=./data ./bin/appanel serve
 - The UI builds all DOM with `textContent` and ships a strict Content-Security-Policy (no inline script or style).
 - The File Manager confines every path to its root, resolves symlinks before checking, writes atomically and never follows a symlink out of the root.
 - Everything written into an Nginx config (domains, aliases, proxy address, document root, PHP socket) is checked against a strict allowlist first, so a hostile value cannot inject directives. Configs are validated with `nginx -t` and rolled back if rejected.
+- The firewall always allows SSH and the panel port before turning on, and refuses to delete the rule that keeps them open. Deletes are checked against what the UI showed, so a stale list cannot remove the wrong rule.
+- Cron commands run as root; they are single-line only and `%` is escaped so a command cannot be split.
 - The terminal WebSocket needs a valid session and a same-origin `Origin` header (blocks cross-site hijacking), and is capped at 5 open terminals.
 - The panel runs as root because it has to manage the server. Treat access to it like root SSH access: keep 2FA on and the port firewalled where you can.
 
@@ -107,6 +111,9 @@ internal/config/    config file, random port and secret path
 internal/files/     path-confined file operations
 internal/server/    HTTP API and security headers
 internal/sites/     websites: validation, Nginx vhosts, Let's Encrypt
+internal/cron/      cron jobs rendered into /etc/cron.d
+internal/firewall/  ufw driver with lock-out protection
+internal/execx/     command runner interface (fakeable in tests)
 internal/store/     persistence (JSON file today, swappable)
 internal/system/    /proc metrics
 internal/term/      PTY shell sessions

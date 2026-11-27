@@ -140,7 +140,7 @@ function shell() {
   const view = h("main", { class: "main" });
   const side = h("aside", { class: "side" },
     h("div", { class: "brand" }, h("img", { src: "favicon.svg", alt: "" }), "Appanel"),
-    h("nav", { class: "nav" }, link("/dashboard", "Dashboard"), link("/websites", "Websites"), link("/files", "File Manager"), link("/terminal", "Terminal"), link("/settings", "Settings")),
+    h("nav", { class: "nav" }, link("/dashboard", "Dashboard"), link("/websites", "Websites"), link("/files", "File Manager"), link("/terminal", "Terminal"), link("/cron", "Cron jobs"), link("/firewall", "Firewall"), link("/settings", "Settings")),
     h("div", { class: "spacer" }),
     h("div", { class: "muted" }, `Signed in as ${state.user.username}`),
     h("div", { class: "row" },
@@ -149,6 +149,8 @@ function shell() {
   if (path.startsWith("/files")) filesView(view);
   else if (path.startsWith("/websites")) websitesView(view);
   else if (path.startsWith("/terminal")) terminalView(view);
+  else if (path.startsWith("/cron")) cronView(view);
+  else if (path.startsWith("/firewall")) firewallView(view);
   else if (path.startsWith("/settings")) settingsView(view);
   else dashboardView(view);
   return h("div", { class: "shell" }, side, view);
@@ -399,6 +401,145 @@ function websitesView(view) {
   }
 
   loadStatus().then(() => { drawForm(); loadList(); });
+}
+
+/* ---- cron ---- */
+const CRON_PRESETS = [
+  ["Every minute", "* * * * *"], ["Every 5 minutes", "*/5 * * * *"], ["Every hour", "0 * * * *"],
+  ["Every day at 03:00", "0 3 * * *"], ["Every Sunday at 04:00", "0 4 * * 0"], ["First of the month, 05:00", "0 5 1 * *"],
+  ["At server start", "@reboot"], ["Custom…", ""],
+];
+
+function cronView(view) {
+  const notice = h("div");
+  const say = (m, ok, log) => notice.replaceChildren(
+    ...[m ? h("div", { class: "msg " + (ok ? "ok" : "err") }, m) : null, log ? h("pre", { class: "log" }, log) : null].filter(Boolean));
+  const formBox = h("div"), listBox = h("div", { class: "card table-wrap" }, "Loading…");
+  view.append(h("div", { class: "topbar" }, h("h1", {}, "Cron jobs")), notice, formBox, listBox);
+  let editing = null;
+
+  function drawForm() {
+    const name = h("input", { type: "text", placeholder: "Nightly backup", autocomplete: "off" });
+    const sched = h("input", { type: "text", placeholder: "30 2 * * *", autocomplete: "off", class: "mono" });
+    const preset = h("select", {}, CRON_PRESETS.map(([l, v], i) => h("option", { value: String(i) }, l)));
+    const cmd = h("input", { type: "text", placeholder: "/usr/bin/php /var/www/example.com/public_html/cron.php", autocomplete: "off", class: "mono" });
+    const on = h("input", { type: "checkbox" }); on.checked = true;
+    if (editing) { name.value = editing.name; sched.value = editing.schedule; cmd.value = editing.command; on.checked = editing.enabled; preset.value = String(CRON_PRESETS.length - 1); }
+    else { preset.value = "3"; sched.value = CRON_PRESETS[3][1]; }
+    preset.addEventListener("change", () => { const v = CRON_PRESETS[+preset.value][1]; if (v) sched.value = v; else sched.focus(); });
+    const btn = h("button", { class: "btn primary", type: "submit" }, editing ? "Save changes" : "Add job");
+    formBox.replaceChildren(h("div", { class: "card" }, h("h2", {}, editing ? "Edit job" : "Add a job"),
+      h("form", { onsubmit: async (e) => {
+        e.preventDefault(); btn.disabled = true; say("");
+        const body = { name: name.value, schedule: sched.value, command: cmd.value, enabled: on.checked };
+        try {
+          if (editing) await api.put("api/cron/" + editing.id, body); else await api.post("api/cron", body);
+          say(editing ? "Job updated." : "Job added.", true); editing = null; drawForm(); loadList();
+        } catch (x) { say(x.message); } finally { btn.disabled = false; }
+      } },
+      h("div", { class: "grid2" },
+        h("label", { class: "field" }, h("span", {}, "Name"), name),
+        h("label", { class: "field" }, h("span", {}, "When"), preset),
+        h("label", { class: "field" }, h("span", {}, "Schedule (minute hour day month weekday)"), sched)),
+      h("label", { class: "field" }, h("span", {}, "Command (runs as root)"), cmd),
+      h("label", { class: "row" }, on, "Enabled"),
+      h("div", { class: "row", style: null }, btn, editing ? h("button", { class: "btn", type: "button", onclick: () => { editing = null; drawForm(); } }, "Cancel") : null))));
+  }
+
+  async function loadList() {
+    let d;
+    try { d = await api.get("api/cron"); } catch (x) { listBox.replaceChildren(h("div", { class: "msg err" }, x.message)); return; }
+    if (!d.jobs.length) { listBox.replaceChildren(h("p", { class: "muted" }, "No jobs yet.")); return; }
+    listBox.replaceChildren(h("table", { class: "files sites" },
+      h("thead", {}, h("tr", {}, ["Name", "Schedule", "Command", "Status", ""].map((t) => h("th", {}, t)))),
+      h("tbody", {}, d.jobs.map((j) => h("tr", {},
+        h("td", { class: "name" }, j.name),
+        h("td", { class: "mono" }, j.schedule),
+        h("td", { class: "mono muted" }, j.command),
+        h("td", {}, h("span", { class: "badge " + (j.enabled ? "ok" : "") }, j.enabled ? "Enabled" : "Paused")),
+        h("td", { class: "act" }, h("div", { class: "row" },
+          h("button", { class: "btn sm", onclick: async (e) => {
+            const b = e.currentTarget; b.disabled = true; say("Running…", true);
+            try { const r = await api.post("api/cron/" + j.id + "/run"); say(r.ok ? "Finished." : "Finished with an error: " + r.error, r.ok, r.output || "(no output)"); }
+            catch (x) { say(x.message); } finally { b.disabled = false; }
+          } }, "Run now"),
+          h("button", { class: "btn sm", onclick: () => { editing = j; drawForm(); window.scrollTo(0, 0); } }, "Edit"),
+          h("button", { class: "btn sm", onclick: async () => {
+            try { await api.put("api/cron/" + j.id, { name: j.name, schedule: j.schedule, command: j.command, enabled: !j.enabled }); loadList(); } catch (x) { say(x.message); }
+          } }, j.enabled ? "Pause" : "Resume"),
+          h("button", { class: "btn sm danger", onclick: async () => {
+            if (!confirm(`Delete the job "${j.name}"?`)) return;
+            try { await api.del("api/cron/" + j.id); loadList(); } catch (x) { say(x.message); }
+          } }, "Delete")))))))); 
+  }
+  drawForm(); loadList();
+}
+
+/* ---- firewall ---- */
+function firewallView(view) {
+  const notice = h("div");
+  const say = (m, ok, log) => notice.replaceChildren(
+    ...[m ? h("div", { class: "msg " + (ok ? "ok" : "err") }, m) : null, log ? h("pre", { class: "log" }, log) : null].filter(Boolean));
+  const body = h("div");
+  view.append(h("div", { class: "topbar" }, h("h1", {}, "Firewall")), notice, body);
+
+  async function load() {
+    let st;
+    try { st = await api.get("api/firewall"); } catch (x) { body.replaceChildren(h("div", { class: "msg err" }, x.message)); return; }
+    if (!st.installed) {
+      const btn = h("button", { class: "btn primary", onclick: async () => {
+        btn.disabled = true; say("Installing ufw…", true);
+        try { const r = await api.post("api/firewall/install"); say("ufw installed.", true, r.log); load(); }
+        catch (x) { say(x.message, false, x.log); } finally { btn.disabled = false; }
+      } }, "Install firewall (ufw)");
+      body.replaceChildren(h("div", { class: "card setup" }, h("h2", {}, "Firewall not installed"),
+        h("p", { class: "muted" }, "ufw is the standard simple firewall for Ubuntu and Debian. Installing it does not turn it on."), btn));
+      return;
+    }
+    const toggle = h("button", { class: st.active ? "btn danger" : "btn primary", onclick: async () => {
+      if (st.active && !confirm("Turn the firewall off? All ports will be reachable from the internet.")) return;
+      if (!st.active && !confirm(`Turn the firewall on? Ports ${st.protected_ports.join(", ")} (SSH and this panel) will be allowed first so you stay connected. Everything else incoming is blocked unless you add a rule.`)) return;
+      toggle.disabled = true;
+      try { if (st.active) await api.post("api/firewall/disable"); else { const r = await api.post("api/firewall/enable"); say("Firewall enabled.", true, r.log); } load(); }
+      catch (x) { say(x.message, false, x.log); } finally { toggle.disabled = false; }
+    } }, st.active ? "Turn off" : "Turn on");
+
+    const action = h("select", {}, ["allow", "deny", "limit", "reject"].map((a) => h("option", { value: a }, a[0].toUpperCase() + a.slice(1))));
+    const port = h("input", { type: "text", placeholder: "443 or 8000:8100", autocomplete: "off" });
+    const proto = h("select", {}, ["tcp", "udp", "any"].map((a) => h("option", { value: a }, a.toUpperCase())));
+    const src = h("input", { type: "text", placeholder: "Anywhere, or 203.0.113.5 / 10.0.0.0/8", autocomplete: "off" });
+    const add = async (rule, quiet) => { try { await api.post("api/firewall/rules", rule); if (!quiet) say("Rule added.", true); } catch (x) { say(x.message, false, x.log); throw x; } };
+    const quick = (label, rules) => h("button", { class: "btn sm", type: "button", onclick: async () => {
+      try { for (const r of rules) await add(r, true); say(label + " allowed.", true); load(); } catch { /* shown */ }
+    } }, label);
+
+    body.replaceChildren(
+      h("div", { class: "card" }, h("div", { class: "row between" },
+        h("div", {}, h("span", { class: "badge " + (st.active ? "ok" : "warn") }, st.active ? "Active" : "Inactive"),
+          h("span", { class: "muted" }, ` Always kept open: ${st.protected_ports.join(", ")} (SSH and this panel)`)), toggle)),
+      h("div", { class: "card" }, h("h2", {}, "Add a rule"),
+        h("form", { onsubmit: async (e) => { e.preventDefault(); try { await add({ action: action.value, port: port.value, proto: proto.value, source: src.value }); port.value = src.value = ""; load(); } catch { /* shown */ } } },
+          h("div", { class: "grid2" },
+            h("label", { class: "field" }, h("span", {}, "Action"), action),
+            h("label", { class: "field" }, h("span", {}, "Port"), port),
+            h("label", { class: "field" }, h("span", {}, "Protocol"), proto),
+            h("label", { class: "field" }, h("span", {}, "From (optional)"), src)),
+          h("div", { class: "row" }, h("button", { class: "btn primary", type: "submit" }, "Add rule"),
+            h("span", { class: "muted" }, "Quick:"),
+            quick("Web (80, 443)", [{ action: "allow", port: "80", proto: "tcp" }, { action: "allow", port: "443", proto: "tcp" }]),
+            quick("SSH (22)", [{ action: "allow", port: "22", proto: "tcp" }])))),
+      h("div", { class: "card table-wrap" }, st.rules.length ? h("table", { class: "files sites" },
+        h("thead", {}, h("tr", {}, ["#", "To", "Action", "From", ""].map((t) => h("th", {}, t)))),
+        h("tbody", {}, st.rules.map((r) => h("tr", {},
+          h("td", { class: "muted" }, r.number), h("td", { class: "mono" }, r.to),
+          h("td", {}, h("span", { class: "badge " + (r.action === "ALLOW" ? "ok" : r.action === "LIMIT" ? "warn" : "bad") }, r.action)),
+          h("td", { class: "mono muted" }, r.from),
+          h("td", { class: "act" }, h("button", { class: "btn sm danger", onclick: async () => {
+            if (!confirm(`Delete rule ${r.number} (${r.to})?`)) return;
+            try { await api.del("api/firewall/rules/" + r.number + "?to=" + encodeURIComponent(r.to)); load(); } catch (x) { say(x.message); load(); }
+          } }, "Delete")))))) : h("p", { class: "muted" }, "No rules yet.")));
+  }
+  load();
 }
 
 /* ---- terminal ---- */

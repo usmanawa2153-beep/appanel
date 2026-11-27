@@ -124,6 +124,9 @@ pre.log { background: var(--surface-2); border: 1px solid var(--border); border-
 #app select { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .card + .card, .msg + .card, div + .card.table-wrap { margin-top: 12px; }
 
+.row.between { justify-content: space-between; }
+input.mono { font-family: var(--mono); }
+
 /* terminal */
 .term {
   background: #0d1017; color: #d7dae0; border: 1px solid var(--border); border-radius: var(--radius);
