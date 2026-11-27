@@ -140,7 +140,7 @@ function shell() {
   const view = h("main", { class: "main" });
   const side = h("aside", { class: "side" },
     h("div", { class: "brand" }, h("img", { src: "favicon.svg", alt: "" }), "Appanel"),
-    h("nav", { class: "nav" }, link("/dashboard", "Dashboard"), link("/websites", "Websites"), link("/files", "File Manager"), link("/terminal", "Terminal"), link("/databases", "Databases"), link("/backups", "Backups"), link("/cron", "Cron jobs"), link("/firewall", "Firewall"), link("/settings", "Settings")),
+    h("nav", { class: "nav" }, link("/dashboard", "Dashboard"), link("/websites", "Websites"), link("/files", "File Manager"), link("/terminal", "Terminal"), link("/dns", "DNS"), link("/databases", "Databases"), link("/backups", "Backups"), link("/cron", "Cron jobs"), link("/firewall", "Firewall"), link("/settings", "Settings")),
     h("div", { class: "spacer" }),
     h("div", { class: "muted" }, `Signed in as ${state.user.username}`),
     h("div", { class: "row" },
@@ -149,6 +149,7 @@ function shell() {
   if (path.startsWith("/files")) filesView(view);
   else if (path.startsWith("/websites")) websitesView(view);
   else if (path.startsWith("/terminal")) terminalView(view);
+  else if (path.startsWith("/dns")) dnsView(view);
   else if (path.startsWith("/databases")) databasesView(view);
   else if (path.startsWith("/backups")) backupsView(view);
   else if (path.startsWith("/cron")) cronView(view);
@@ -542,6 +543,106 @@ function backupsView(view) {
           } }, "Delete"))))))));
   }
   drawMake(); loadList().then(drawSchedule);
+}
+
+/* ---- dns (Cloudflare) ---- */
+function dnsView(view) {
+  const notice = h("div");
+  const say = (m, ok) => notice.replaceChildren(...(m ? [h("div", { class: "msg " + (ok ? "ok" : "err") }, m)] : []));
+  const body = h("div");
+  view.append(h("div", { class: "topbar" }, h("h1", {}, "DNS (Cloudflare)")), notice, body);
+  let zoneId = "", serverIp = "";
+
+  async function load() {
+    let st;
+    try { st = await api.get("api/dns"); } catch (x) { body.replaceChildren(h("div", { class: "msg err" }, x.message)); return; }
+    serverIp = st.server_ip || "";
+    if (!st.configured) {
+      const tok = h("input", { type: "password", placeholder: "Cloudflare API token", autocomplete: "off" });
+      const b = h("button", { class: "btn primary", type: "submit" }, "Verify and save");
+      body.replaceChildren(h("div", { class: "card setup" }, h("h2", {}, "Connect Cloudflare"),
+        h("p", { class: "muted" }, "Create a token at Cloudflare → My Profile → API Tokens, using the template “Edit zone DNS” (or permissions Zone:Read and DNS:Edit). The token is checked with Cloudflare, stored only on this server and never shown again."),
+        h("form", { onsubmit: async (e) => {
+          e.preventDefault(); b.disabled = true; say("Checking the token…", true);
+          try { await api.put("api/dns/token", { token: tok.value }); say("Connected.", true); load(); } catch (x) { say(x.message); } finally { b.disabled = false; }
+        } }, h("label", { class: "field" }, h("span", {}, "API token"), tok), b)));
+      return;
+    }
+    let zones;
+    try { zones = (await api.get("api/dns/zones")).zones; } catch (x) { say(x.message); zones = []; }
+    if (!zones.some((z) => z.id === zoneId)) zoneId = zones.length ? zones[0].id : "";
+    const sel = h("select", {}, zones.map((z) => h("option", { value: z.id }, z.name)));
+    sel.value = zoneId;
+    sel.addEventListener("change", () => { zoneId = sel.value; drawRecords(); });
+    const disconnect = h("button", { class: "btn sm danger", onclick: async () => {
+      if (!confirm("Remove the saved Cloudflare token from this server?")) return;
+      try { await api.del("api/dns/token"); zoneId = ""; load(); } catch (x) { say(x.message); }
+    } }, "Disconnect");
+    const recBox = h("div");
+    body.replaceChildren(h("div", { class: "card" }, h("div", { class: "row between" }, h("div", { class: "grow" }, h("label", { class: "field" }, h("span", {}, "Domain"), sel)), disconnect)), recBox);
+    window.__dnsBox = recBox;
+    if (zoneId) drawRecords(); else recBox.replaceChildren(h("p", { class: "muted" }, "No domains found for this token."));
+  }
+
+  async function drawRecords() {
+    const box = window.__dnsBox; box.replaceChildren(h("div", { class: "card" }, "Loading…"));
+    let recs;
+    try { recs = (await api.get("api/dns/zones/" + zoneId + "/records")).records; } catch (x) { box.replaceChildren(h("div", { class: "msg err" }, x.message)); return; }
+    let editing = null;
+    const formBox = h("div");
+    const pName = h("input", { type: "text", placeholder: "www  or  @ for the bare domain", autocomplete: "off", class: "mono" });
+    const pIp = h("input", { type: "text", placeholder: "Server IPv4", autocomplete: "off", class: "mono" }); pIp.value = serverIp;
+    const pProxy = h("input", { type: "checkbox" });
+    const pBtn = h("button", { class: "btn primary", type: "submit" }, "Point to this server");
+    const point = h("div", { class: "card" }, h("h2", {}, "Point a name to this server"),
+      h("form", { onsubmit: async (e) => {
+        e.preventDefault(); pBtn.disabled = true;
+        try { const r = await api.post("api/dns/zones/" + zoneId + "/point", { name: pName.value, ip: pIp.value, proxied: pProxy.checked }); say("A record " + r.result + ".", true); drawRecords(); }
+        catch (x) { say(x.message); } finally { pBtn.disabled = false; }
+      } }, h("div", { class: "grid2" }, h("label", { class: "field" }, h("span", {}, "Name"), pName), h("label", { class: "field" }, h("span", {}, "IP address"), pIp)),
+      h("div", { class: "row" }, h("label", { class: "row" }, pProxy, "Proxied through Cloudflare"), pBtn)));
+
+    function drawForm() {
+      const type = h("select", {}, ["A", "AAAA", "CNAME", "TXT", "MX", "NS", "SRV", "CAA"].map((t) => h("option", { value: t }, t)));
+      const name = h("input", { type: "text", autocomplete: "off", class: "mono" });
+      const content = h("input", { type: "text", autocomplete: "off", class: "mono" });
+      const prio = h("input", { type: "text", autocomplete: "off", placeholder: "MX only" });
+      const ttl = h("input", { type: "text", autocomplete: "off", placeholder: "1 = Auto" });
+      const prox = h("input", { type: "checkbox" });
+      if (editing) { type.value = editing.type; name.value = editing.name; content.value = editing.content; prio.value = editing.priority ?? ""; ttl.value = editing.ttl; prox.checked = editing.proxied; }
+      const btn = h("button", { class: "btn primary", type: "submit" }, editing ? "Save record" : "Add record");
+      formBox.replaceChildren(h("div", { class: "card" }, h("h2", {}, editing ? "Edit record" : "Add a record"),
+        h("form", { onsubmit: async (e) => {
+          e.preventDefault(); btn.disabled = true;
+          const rec = { type: type.value, name: name.value, content: content.value, ttl: +ttl.value || 1, proxied: prox.checked };
+          if (prio.value !== "") rec.priority = +prio.value;
+          try {
+            if (editing) await api.put("api/dns/zones/" + zoneId + "/records/" + editing.id, rec); else await api.post("api/dns/zones/" + zoneId + "/records", rec);
+            say(editing ? "Record updated." : "Record added.", true); drawRecords();
+          } catch (x) { say(x.message); } finally { btn.disabled = false; }
+        } }, h("div", { class: "grid2" },
+          h("label", { class: "field" }, h("span", {}, "Type"), type), h("label", { class: "field" }, h("span", {}, "Name"), name),
+          h("label", { class: "field" }, h("span", {}, "Content"), content), h("label", { class: "field" }, h("span", {}, "Priority"), prio),
+          h("label", { class: "field" }, h("span", {}, "TTL (seconds)"), ttl)),
+        h("div", { class: "row" }, h("label", { class: "row" }, prox, "Proxied"), btn,
+          editing ? h("button", { class: "btn", type: "button", onclick: () => { editing = null; drawForm(); } }, "Cancel") : null))));
+    }
+    drawForm();
+    const table = h("div", { class: "card table-wrap" }, recs.length ? h("table", { class: "files sites" },
+      h("thead", {}, h("tr", {}, ["Type", "Name", "Content", "TTL", ""].map((t) => h("th", {}, t)))),
+      h("tbody", {}, recs.map((r) => h("tr", {},
+        h("td", {}, h("span", { class: "badge" }, r.type)), h("td", { class: "mono name" }, r.name),
+        h("td", { class: "mono muted" }, (r.priority != null ? r.priority + " " : "") + r.content + (r.proxied ? "  (proxied)" : "")),
+        h("td", { class: "muted" }, r.ttl === 1 ? "Auto" : r.ttl),
+        h("td", { class: "act" }, h("div", { class: "row" },
+          h("button", { class: "btn sm", onclick: () => { editing = r; drawForm(); window.scrollTo(0, 0); } }, "Edit"),
+          h("button", { class: "btn sm danger", onclick: async () => {
+            if (!confirm(`Delete the ${r.type} record ${r.name}?`)) return;
+            try { await api.del("api/dns/zones/" + zoneId + "/records/" + r.id); drawRecords(); } catch (x) { say(x.message); }
+          } }, "Delete"))))))) : h("p", { class: "muted" }, "No records."));
+    box.replaceChildren(point, formBox, table);
+  }
+  load();
 }
 
 /* ---- cron ---- */

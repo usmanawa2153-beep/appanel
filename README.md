@@ -23,6 +23,7 @@ A self-hosted hosting control panel for Ubuntu and Debian servers, in the spirit
 | Firewall (ufw): install, on/off, add/delete rules, quick presets; SSH and the panel port can never be closed by mistake | done |
 | Databases: install MariaDB/MySQL or PostgreSQL, create a database + user with a generated password (shown once), reset password, delete | done |
 | Backups: site files (tar.gz) and database dumps, download, restore, delete; one-click nightly backups keeping the newest 7 (`appanel backup-all`) | done |
+| DNS (Cloudflare): connect an API token, list domains, add/edit/delete records, one-click "point this name to my server" | done |
 | Free SSL: Let's Encrypt via Certbot (HTTP-01), expiry shown in the panel, "Force HTTPS", auto-renewal | done |
 | One-click "Install Nginx & Certbot" (and optionally PHP-FPM) from the panel | done |
 | Full-screen terminal programs (vim, nano, htop) | not yet |
@@ -89,6 +90,7 @@ APPANEL_DATA=./data ./bin/appanel serve
 - Everything written into an Nginx config (domains, aliases, proxy address, document root, PHP socket) is checked against a strict allowlist first, so a hostile value cannot inject directives. Configs are validated with `nginx -t` and rolled back if rejected.
 - The firewall always allows SSH and the panel port before turning on, and refuses to delete the rule that keeps them open. Deletes are checked against what the UI showed, so a stale list cannot remove the wrong rule.
 - Backups live in `/var/backups/appanel` (mode 0700, files 0600). File names are validated against an exact pattern and symlinks are never followed, so a download or delete can never reach outside that folder. A failed or empty backup is discarded instead of kept.
+- The Cloudflare token is checked with Cloudflare before it is saved, is stored only in the panel's private data file, is sent only in an Authorization header, and is never returned by any API call. "Point to server" refuses to overwrite a CNAME so mail and other records are not broken silently.
 - Cron commands run as root; they are single-line only and `%` is escaped so a command cannot be split.
 - The terminal WebSocket needs a valid session and a same-origin `Origin` header (blocks cross-site hijacking), and is capped at 5 open terminals.
 - The panel runs as root because it has to manage the server. Treat access to it like root SSH access: keep 2FA on and the port firewalled where you can.
@@ -98,7 +100,7 @@ Found a vulnerability? Please open a private security advisory on GitHub rather 
 ## Roadmap
 
 1. **Phase 1:** installer, Go agent, auth, dashboard, File Manager, web terminal *(done, apart from full-screen terminal apps)*
-2. **Phase 2:** websites on Nginx, Let's Encrypt SSL *(done)*; DNS provider APIs (Cloudflare and others), wildcard certificates *(next)*
+2. **Phase 2:** websites on Nginx, Let's Encrypt SSL *(done)*; Cloudflare DNS *(done)*; other DNS providers and wildcard certificates *(next)*
 3. **Phase 3:** MySQL/Postgres and a database manager, cron, firewall, backups
 4. **Phase 4:** Node/Python/Docker app deploy, process manager, one-click apps
 5. **Phase 5:** Telegram/email alerts, AI assistant, REST API + CLI, multi-user accounts
@@ -115,6 +117,7 @@ internal/files/     path-confined file operations
 internal/server/    HTTP API and security headers
 internal/sites/     websites: validation, Nginx vhosts, Let's Encrypt
 internal/backups/   site and database backups
+internal/dns/       Cloudflare API client
 internal/cron/      cron jobs rendered into /etc/cron.d
 internal/databases/ MariaDB/MySQL and PostgreSQL management
 internal/firewall/  ufw driver with lock-out protection

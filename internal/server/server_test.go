@@ -25,6 +25,7 @@ type env struct {
 	ts   *httptest.Server
 	root string
 	cli  *http.Client
+	st   *store.Store
 }
 
 func newEnv(t *testing.T) *env { return newEnvWith(t, nil) }
@@ -51,7 +52,7 @@ func newEnvWith(t *testing.T, hook func(*Server)) *env {
 	}
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
-	return &env{t: t, ts: ts, root: root, cli: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	return &env{t: t, ts: ts, root: root, st: st, cli: &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 }
 
 func (e *env) do(method, path string, body any, cookie *http.Cookie, csrf bool) *http.Response {
@@ -301,3 +302,5 @@ func TestPasswordChangeSignsOutOthers(t *testing.T) {
 		t.Fatalf("short password accepted: %d", res.StatusCode)
 	}
 }
+
+func (e *env) srvSettings() store.Settings { return e.st.Settings() }

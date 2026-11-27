@@ -35,6 +35,8 @@ func (s Site) Names() []string { return append([]string{s.Domain}, s.Aliases...)
 // Settings are panel-wide options.
 type Settings struct {
 	ACMEEmail string `json:"acme_email,omitempty"`
+	// CloudflareToken is never sent to the browser.
+	CloudflareToken string `json:"cloudflare_token,omitempty"`
 }
 
 // Settings returns the panel settings.

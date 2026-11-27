@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/usmanawa2153-beep/appanel/internal/sites"
-	"github.com/usmanawa2153-beep/appanel/internal/store"
 )
 
 // SetSiteManager replaces the website manager (tests inject a fake-runner one).
@@ -154,11 +153,14 @@ func (s *Server) handleSiteSSL(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSettingsGet(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.st.Settings())
+	st := s.st.Settings()
+	writeJSON(w, http.StatusOK, map[string]any{"acme_email": st.ACMEEmail, "cloudflare_configured": st.CloudflareToken != ""})
 }
 
 func (s *Server) handleSettingsPut(w http.ResponseWriter, r *http.Request) {
-	var in store.Settings
+	var in struct {
+		ACMEEmail string `json:"acme_email"`
+	}
 	if !decode(w, r, maxJSON, &in) {
 		return
 	}
@@ -167,10 +169,12 @@ func (s *Server) handleSettingsPut(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "that email address doesn't look valid")
 		return
 	}
-	if err := s.st.SetSettings(in); err != nil {
+	st := s.st.Settings() // keep every other setting (e.g. the Cloudflare token)
+	st.ACMEEmail = in.ACMEEmail
+	if err := s.st.SetSettings(st); err != nil {
 		logf("save settings: %v", err)
 		writeErr(w, http.StatusInternalServerError, "could not save")
 		return
 	}
-	writeJSON(w, http.StatusOK, in)
+	writeJSON(w, http.StatusOK, map[string]any{"acme_email": st.ACMEEmail, "cloudflare_configured": st.CloudflareToken != ""})
 }

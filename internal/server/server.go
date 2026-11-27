@@ -21,6 +21,7 @@ import (
 	"github.com/usmanawa2153-beep/appanel/internal/config"
 	"github.com/usmanawa2153-beep/appanel/internal/cron"
 	"github.com/usmanawa2153-beep/appanel/internal/databases"
+	"github.com/usmanawa2153-beep/appanel/internal/dns"
 	"github.com/usmanawa2153-beep/appanel/internal/files"
 	"github.com/usmanawa2153-beep/appanel/internal/firewall"
 	"github.com/usmanawa2153-beep/appanel/internal/sites"
@@ -46,6 +47,7 @@ type Server struct {
 	fw      *firewall.Manager
 	db      *databases.Manager
 	bk      *backups.Manager
+	dns     *dns.Client
 	fs      *files.FS
 	ui      fs.FS
 	version string
@@ -75,6 +77,7 @@ func New(cfg *config.Config, st *store.Store, ui fs.FS, version string) (*Server
 		fw:      firewall.NewManager(func() int { return cfg.Port }),
 		db:      dbm,
 		bk:      backups.NewManager(st, dbm),
+		dns:     dns.NewClient(func() string { return st.Settings().CloudflareToken }),
 		fs:      ffs,
 		ui:      ui,
 		version: version,
@@ -135,6 +138,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/backups/{name}", s.authed(s.handleBackupDelete))
 	mux.HandleFunc("POST /api/backups/{name}/restore", s.authed(s.handleBackupRestore))
 	mux.HandleFunc("GET /api/backups/{name}/download", s.authed(s.handleBackupDownload))
+	mux.HandleFunc("GET /api/dns", s.authed(s.handleDNSStatus))
+	mux.HandleFunc("PUT /api/dns/token", s.authed(s.handleDNSToken))
+	mux.HandleFunc("DELETE /api/dns/token", s.authed(s.handleDNSTokenDelete))
+	mux.HandleFunc("GET /api/dns/zones", s.authed(s.handleDNSZones))
+	mux.HandleFunc("GET /api/dns/zones/{zone}/records", s.authed(s.handleDNSRecords))
+	mux.HandleFunc("POST /api/dns/zones/{zone}/records", s.authed(s.handleDNSCreate))
+	mux.HandleFunc("PUT /api/dns/zones/{zone}/records/{id}", s.authed(s.handleDNSUpdate))
+	mux.HandleFunc("DELETE /api/dns/zones/{zone}/records/{id}", s.authed(s.handleDNSDelete))
+	mux.HandleFunc("POST /api/dns/zones/{zone}/point", s.authed(s.handleDNSPoint))
 	mux.HandleFunc("GET /api/settings", s.authed(s.handleSettingsGet))
 	mux.HandleFunc("PUT /api/settings", s.authed(s.handleSettingsPut))
 
