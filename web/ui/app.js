@@ -140,7 +140,7 @@ function shell() {
   const view = h("main", { class: "main" });
   const side = h("aside", { class: "side" },
     h("div", { class: "brand" }, h("img", { src: "favicon.svg", alt: "" }), "Appanel"),
-    h("nav", { class: "nav" }, link("/dashboard", "Dashboard"), link("/websites", "Websites"), link("/files", "File Manager"), link("/terminal", "Terminal"), link("/databases", "Databases"), link("/cron", "Cron jobs"), link("/firewall", "Firewall"), link("/settings", "Settings")),
+    h("nav", { class: "nav" }, link("/dashboard", "Dashboard"), link("/websites", "Websites"), link("/files", "File Manager"), link("/terminal", "Terminal"), link("/databases", "Databases"), link("/backups", "Backups"), link("/cron", "Cron jobs"), link("/firewall", "Firewall"), link("/settings", "Settings")),
     h("div", { class: "spacer" }),
     h("div", { class: "muted" }, `Signed in as ${state.user.username}`),
     h("div", { class: "row" },
@@ -150,6 +150,7 @@ function shell() {
   else if (path.startsWith("/websites")) websitesView(view);
   else if (path.startsWith("/terminal")) terminalView(view);
   else if (path.startsWith("/databases")) databasesView(view);
+  else if (path.startsWith("/backups")) backupsView(view);
   else if (path.startsWith("/cron")) cronView(view);
   else if (path.startsWith("/firewall")) firewallView(view);
   else if (path.startsWith("/settings")) settingsView(view);
@@ -465,6 +466,82 @@ function databasesView(view) {
     }));
   }
   load();
+}
+
+/* ---- backups ---- */
+function backupsView(view) {
+  const notice = h("div");
+  const say = (m, ok) => notice.replaceChildren(...(m ? [h("div", { class: "msg " + (ok ? "ok" : "err") }, m)] : []));
+  const makeBox = h("div"), schedBox = h("div"), listBox = h("div", { class: "card table-wrap" }, "Loading…");
+  view.append(h("div", { class: "topbar" }, h("h1", {}, "Backups")), notice, makeBox, schedBox, listBox);
+  const human = (n) => n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : n < 1073741824 ? (n / 1048576).toFixed(1) + " MB" : (n / 1073741824).toFixed(2) + " GB";
+  let schedCmd = "";
+
+  async function drawMake() {
+    let sites = [], dbs = [];
+    try { sites = (await api.get("api/sites")).sites.filter((x) => x.type !== "proxy"); } catch { /* none */ }
+    try { for (const e of (await api.get("api/databases")).engines) for (const d of e.databases) dbs.push({ engine: e.engine, name: d.name }); } catch { /* none */ }
+    const siteSel = h("select", {}, sites.length ? sites.map((x) => h("option", { value: x.id }, x.domain)) : [h("option", { value: "" }, "No sites with files")]);
+    const dbSel = h("select", {}, dbs.length ? dbs.map((d) => h("option", { value: d.engine + "/" + d.name }, d.name + " (" + d.engine + ")")) : [h("option", { value: "" }, "No databases")]);
+    const run = (btn, fn, okMsg) => async () => {
+      btn.disabled = true; say("Working, a big site can take a while…", true);
+      try { await fn(); say(okMsg, true); loadList(); } catch (x) { say(x.message); } finally { btn.disabled = false; }
+    };
+    const b1 = h("button", { class: "btn primary" }, "Back up site files");
+    const b2 = h("button", { class: "btn primary" }, "Back up database");
+    b1.onclick = run(b1, () => api.post("api/backups/site", { site_id: +siteSel.value }), "Site backup created.");
+    b2.onclick = run(b2, () => { const [engine, name] = dbSel.value.split("/"); return api.post("api/backups/db", { engine, name }); }, "Database backup created.");
+    b1.disabled = !sites.length; b2.disabled = !dbs.length;
+    makeBox.replaceChildren(h("div", { class: "card" }, h("h2", {}, "Back up now"),
+      h("div", { class: "grid2" }, h("div", {}, h("label", { class: "field" }, h("span", {}, "Website"), siteSel), b1),
+        h("div", {}, h("label", { class: "field" }, h("span", {}, "Database"), dbSel), b2))));
+  }
+
+  async function drawSchedule() {
+    let job = null;
+    try { job = (await api.get("api/cron")).jobs.find((j) => j.command.includes("backup-all")); } catch { /* ignore */ }
+    const b = h("button", { class: job ? "btn danger" : "btn primary" }, job ? "Turn off nightly backups" : "Turn on nightly backups");
+    b.onclick = async () => {
+      b.disabled = true;
+      try {
+        if (job) await api.del("api/cron/" + job.id);
+        else await api.post("api/cron", { name: "Nightly backup", schedule: "30 2 * * *", command: schedCmd, enabled: true });
+        drawSchedule();
+      } catch (x) { say(x.message); b.disabled = false; }
+    };
+    schedBox.replaceChildren(h("div", { class: "card" }, h("h2", {}, "Nightly backups"),
+      h("p", { class: "muted" }, job ? "Every night at 02:30 all sites and databases are backed up, keeping the newest 7 of each. You can see or change it under Cron jobs."
+        : "Back up every site and database at 02:30 each night and keep the newest 7 of each."), b));
+  }
+
+  async function loadList() {
+    let d;
+    try { d = await api.get("api/backups"); } catch (x) { listBox.replaceChildren(h("div", { class: "msg err" }, x.message)); return; }
+    schedCmd = d.schedule_command;
+    if (!d.backups.length) { listBox.replaceChildren(h("p", { class: "muted" }, "No backups yet.")); return; }
+    listBox.replaceChildren(h("table", { class: "files sites" },
+      h("thead", {}, h("tr", {}, ["What", "Type", "Created (UTC)", "Size", ""].map((t) => h("th", {}, t)))),
+      h("tbody", {}, d.backups.map((b) => h("tr", {},
+        h("td", { class: "name mono" }, b.target),
+        h("td", {}, h("span", { class: "badge" }, b.kind === "site" ? "Files" : b.engine === "mysql" ? "MySQL" : "PostgreSQL")),
+        h("td", { class: "muted" }, new Date(b.created).toISOString().replace("T", " ").slice(0, 16)),
+        h("td", { class: "muted" }, human(b.bytes)),
+        h("td", { class: "act" }, h("div", { class: "row" },
+          h("a", { class: "btn sm", href: "api/backups/" + encodeURIComponent(b.name) + "/download", download: "" }, "Download"),
+          h("button", { class: "btn sm", onclick: async (e) => {
+            const msg = b.kind === "site"
+              ? `Restore the files of ${b.target} from this backup? Files with the same name will be overwritten.`
+              : `Restore database "${b.target}" from this backup? Its current contents will be replaced.`;
+            if (!confirm(msg)) return;
+            const btn = e.currentTarget; btn.disabled = true; say("Restoring…", true);
+            try { await api.post("api/backups/" + encodeURIComponent(b.name) + "/restore"); say("Restored.", true); } catch (x) { say(x.message); } finally { btn.disabled = false; }
+          } }, "Restore"),
+          h("button", { class: "btn sm danger", onclick: async () => {
+            if (!confirm("Delete this backup file?")) return;
+            try { await api.del("api/backups/" + encodeURIComponent(b.name)); loadList(); } catch (x) { say(x.message); }
+          } }, "Delete"))))))));
+  }
+  drawMake(); loadList().then(drawSchedule);
 }
 
 /* ---- cron ---- */

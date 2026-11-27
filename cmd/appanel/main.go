@@ -14,7 +14,9 @@ import (
 	"syscall"
 
 	"github.com/usmanawa2153-beep/appanel/internal/auth"
+	"github.com/usmanawa2153-beep/appanel/internal/backups"
 	"github.com/usmanawa2153-beep/appanel/internal/config"
+	"github.com/usmanawa2153-beep/appanel/internal/databases"
 	"github.com/usmanawa2153-beep/appanel/internal/server"
 	"github.com/usmanawa2153-beep/appanel/internal/store"
 	"github.com/usmanawa2153-beep/appanel/internal/tlsutil"
@@ -31,6 +33,7 @@ Usage:
   appanel serve
   appanel reset-password [--user NAME]
   appanel disable-2fa [--user NAME]
+  appanel backup-all [--keep N]
   appanel info
   appanel version
 
@@ -52,6 +55,8 @@ func main() {
 		err = cmdReset(os.Args[2:])
 	case "disable-2fa":
 		err = cmdDisable2FA(os.Args[2:])
+	case "backup-all":
+		err = cmdBackupAll(os.Args[2:])
 	case "info":
 		err = cmdInfo(os.Args[2:])
 	case "version", "--version", "-v":
@@ -241,5 +246,28 @@ func cmdDisable2FA(args []string) error {
 		return err
 	}
 	fmt.Printf("2FA disabled for %s.\n", u.Username)
+	return nil
+}
+
+// cmdBackupAll is what the nightly cron job runs.
+func cmdBackupAll(args []string) error {
+	fs := flag.NewFlagSet("backup-all", flag.ContinueOnError)
+	keep := fs.Int("keep", 7, "backups to keep per site/database")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	st, err := store.Open(config.DefaultDataDir())
+	if err != nil {
+		return err
+	}
+	m := backups.NewManager(st, databases.NewManager())
+	made, problems := m.RunAll(context.Background(), *keep)
+	fmt.Printf("%d backup(s) made\n", made)
+	for _, p := range problems {
+		fmt.Println("problem:", p)
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("%d problem(s)", len(problems))
+	}
 	return nil
 }

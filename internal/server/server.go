@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/usmanawa2153-beep/appanel/internal/auth"
+	"github.com/usmanawa2153-beep/appanel/internal/backups"
 	"github.com/usmanawa2153-beep/appanel/internal/config"
 	"github.com/usmanawa2153-beep/appanel/internal/cron"
 	"github.com/usmanawa2153-beep/appanel/internal/databases"
@@ -44,6 +45,7 @@ type Server struct {
 	cron    *cron.Manager
 	fw      *firewall.Manager
 	db      *databases.Manager
+	bk      *backups.Manager
 	fs      *files.FS
 	ui      fs.FS
 	version string
@@ -61,6 +63,7 @@ func New(cfg *config.Config, st *store.Store, ui fs.FS, version string) (*Server
 	if err != nil {
 		return nil, err
 	}
+	dbm := databases.NewManager()
 	return &Server{
 		cfg:     cfg,
 		st:      st,
@@ -70,7 +73,8 @@ func New(cfg *config.Config, st *store.Store, ui fs.FS, version string) (*Server
 		sites:   sites.NewManager(st),
 		cron:    cron.NewManager(st),
 		fw:      firewall.NewManager(func() int { return cfg.Port }),
-		db:      databases.NewManager(),
+		db:      dbm,
+		bk:      backups.NewManager(st, dbm),
 		fs:      ffs,
 		ui:      ui,
 		version: version,
@@ -125,6 +129,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/databases/{engine}", s.authed(s.handleDBCreate))
 	mux.HandleFunc("DELETE /api/databases/{engine}/{name}", s.authed(s.handleDBDrop))
 	mux.HandleFunc("POST /api/databases/{engine}/{name}/password", s.authed(s.handleDBPassword))
+	mux.HandleFunc("GET /api/backups", s.authed(s.handleBackupList))
+	mux.HandleFunc("POST /api/backups/site", s.authed(s.handleBackupSite))
+	mux.HandleFunc("POST /api/backups/db", s.authed(s.handleBackupDB))
+	mux.HandleFunc("DELETE /api/backups/{name}", s.authed(s.handleBackupDelete))
+	mux.HandleFunc("POST /api/backups/{name}/restore", s.authed(s.handleBackupRestore))
+	mux.HandleFunc("GET /api/backups/{name}/download", s.authed(s.handleBackupDownload))
 	mux.HandleFunc("GET /api/settings", s.authed(s.handleSettingsGet))
 	mux.HandleFunc("PUT /api/settings", s.authed(s.handleSettingsPut))
 
