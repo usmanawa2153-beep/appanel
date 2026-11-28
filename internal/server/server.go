@@ -14,8 +14,10 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/usmanawa2153-beep/appanel/internal/apps"
 	"github.com/usmanawa2153-beep/appanel/internal/auth"
 	"github.com/usmanawa2153-beep/appanel/internal/backups"
 	"github.com/usmanawa2153-beep/appanel/internal/config"
@@ -51,6 +53,8 @@ type Server struct {
 	dns     *dns.Client
 	dataDir string
 	up      *updater.Updater
+	wp      *apps.WordPress
+	appBusy sync.Mutex
 	restart func() // restarts the panel service; replaced in tests
 	fs      *files.FS
 	ui      fs.FS
@@ -70,13 +74,15 @@ func New(cfg *config.Config, st *store.Store, ui fs.FS, version string) (*Server
 		return nil, err
 	}
 	dbm := databases.NewManager()
+	sm := sites.NewManager(st)
 	return &Server{
 		cfg:     cfg,
 		st:      st,
 		sess:    auth.NewSessions(time.Duration(cfg.SessionHours) * time.Hour),
 		lim:     auth.NewLimiter(5, 10*time.Minute, 15*time.Minute),
 		sys:     system.NewSampler(),
-		sites:   sites.NewManager(st),
+		sites:   sm,
+		wp:      apps.NewWordPress(st, sm, dbm),
 		cron:    cron.NewManager(st),
 		fw:      firewall.NewManager(func() int { return cfg.Port }),
 		db:      dbm,
@@ -156,6 +162,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/dns/zones/{zone}/records/{id}", s.authed(s.handleDNSUpdate))
 	mux.HandleFunc("DELETE /api/dns/zones/{zone}/records/{id}", s.authed(s.handleDNSDelete))
 	mux.HandleFunc("POST /api/dns/zones/{zone}/point", s.authed(s.handleDNSPoint))
+	mux.HandleFunc("POST /api/apps/wordpress", s.authed(s.handleWordPressInstall))
 	mux.HandleFunc("GET /api/update", s.authed(s.handleUpdateCheck))
 	mux.HandleFunc("POST /api/update/apply", s.authed(s.handleUpdateApply))
 	mux.HandleFunc("POST /api/panel/domain", s.authed(s.handlePanelDomainSet))

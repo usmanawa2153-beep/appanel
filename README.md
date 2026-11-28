@@ -28,6 +28,7 @@ A self-hosted hosting control panel for Ubuntu and Debian servers, in the spirit
 | Panel domain: open the panel at `https://your-domain/secret-path/` with a real certificate; once attached the server's IP address no longer opens the panel (CLI: `appanel domain set`, or Settings) | done |
 | Custom login URL: choose your own secret path or generate one (CLI: `appanel path set`, or Settings) | done |
 | Updates: see the latest release, one-click update from Settings (checksum-verified, test-run before it replaces the binary), `appanel update`, or re-run the installer | done |
+| One-click WordPress: new site + database + user, checksum-verified download, wp-config with fresh salts, automatic setup (WP-CLI), optional HTTPS; rolls back if anything fails | done |
 | Free SSL: Let's Encrypt via Certbot (HTTP-01), expiry shown in the panel, "Force HTTPS", auto-renewal | done |
 | One-click "Install Nginx & Certbot" (and optionally PHP-FPM) from the panel | done |
 | Full-screen terminal programs (vim, nano, htop) | not yet |
@@ -98,6 +99,7 @@ APPANEL_DATA=./data ./bin/appanel serve
 - For wildcard certificates the Cloudflare token is also written to `/etc/appanel/cloudflare.ini` (folder 0700, file 0600) because certbot needs it for automatic renewals. If you change the token, request the wildcard certificate again so renewals use the new one.
 - With a panel domain the panel listens on 127.0.0.1 only and answers requests for that exact host name; anything else (the IP address, another name) gets a blank 404, and Nginx is the only way in. The login limiter then uses the real client address that Nginx sets in `X-Real-IP`, trusted only from the loopback socket. The panel's own Nginx site cannot be disabled or removed from the Websites page. Changing the domain or login URL asks for your password again and applies the new settings only after the domain's certificate was obtained, so a failure cannot lock you out.
 - Updates download only from this project's GitHub releases, are verified against the published SHA-256, started once as a test, and only then replace the installed binary (the old one is kept as `appanel.prev`). Applying an update asks for your password.
+- WordPress downloads are verified against wordpress.org's published SHA-1, the archive is unpacked with strict path checks (no symlinks, nothing outside the site folder), `wp-config.php` is mode 0640 with random salts and a random table prefix, and a failed install removes the site, files and database it created. The admin password is generated, shown once and never stored; it is passed to WP-CLI on its command line for a few seconds.
 - Cron commands run as root; they are single-line only and `%` is escaped so a command cannot be split.
 - The terminal WebSocket needs a valid session and a same-origin `Origin` header (blocks cross-site hijacking), and is capped at 5 open terminals.
 - The panel runs as root because it has to manage the server. Treat access to it like root SSH access: keep 2FA on and the port firewalled where you can.
@@ -126,6 +128,7 @@ internal/sites/     websites: validation, Nginx vhosts, Let's Encrypt
 internal/backups/   site and database backups
 internal/dns/       Cloudflare API client
 internal/updater/   release check and self-update
+internal/apps/      one-click apps (WordPress)
 internal/cron/      cron jobs rendered into /etc/cron.d
 internal/databases/ MariaDB/MySQL and PostgreSQL management
 internal/firewall/  ufw driver with lock-out protection

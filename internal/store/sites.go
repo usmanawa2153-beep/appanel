@@ -31,7 +31,9 @@ type Site struct {
 	CertName string `json:"cert_name,omitempty"`
 	// Panel marks the site that exposes the panel itself. It cannot be changed
 	// or removed from the Websites page, so the admin cannot cut off their own access.
-	Panel     bool      `json:"panel,omitempty"`
+	Panel bool `json:"panel,omitempty"`
+	// App names a one-click app installed on the site (for example "wordpress").
+	App       string    `json:"app,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -79,6 +81,23 @@ func (s *Store) SiteByID(id int64) (Site, error) {
 	for _, x := range s.d.Sites {
 		if x.ID == id {
 			return x, nil
+		}
+	}
+	return Site{}, ErrNotFound
+}
+
+// SiteByDomain finds a site by its main domain or any alias.
+func (s *Store) SiteByDomain(domain string) (Site, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, x := range s.d.Sites {
+		if x.Domain == domain {
+			return x, nil
+		}
+		for _, a := range x.Aliases {
+			if a == domain {
+				return x, nil
+			}
 		}
 	}
 	return Site{}, ErrNotFound

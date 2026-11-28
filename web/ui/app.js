@@ -140,7 +140,7 @@ function shell() {
   const view = h("main", { class: "main" });
   const side = h("aside", { class: "side" },
     h("div", { class: "brand" }, h("img", { src: "favicon.svg", alt: "" }), "Appanel"),
-    h("nav", { class: "nav" }, link("/dashboard", "Dashboard"), link("/websites", "Websites"), link("/files", "File Manager"), link("/terminal", "Terminal"), link("/dns", "DNS"), link("/databases", "Databases"), link("/backups", "Backups"), link("/cron", "Cron jobs"), link("/firewall", "Firewall"), link("/settings", state.update ? "Settings ● update" : "Settings")),
+    h("nav", { class: "nav" }, link("/dashboard", "Dashboard"), link("/websites", "Websites"), link("/apps", "One-click apps"), link("/files", "File Manager"), link("/terminal", "Terminal"), link("/dns", "DNS"), link("/databases", "Databases"), link("/backups", "Backups"), link("/cron", "Cron jobs"), link("/firewall", "Firewall"), link("/settings", state.update ? "Settings ● update" : "Settings")),
     h("div", { class: "spacer" }),
     h("div", { class: "muted" }, `Signed in as ${state.user.username}`),
     h("div", { class: "row" },
@@ -149,6 +149,7 @@ function shell() {
   if (path.startsWith("/files")) filesView(view);
   else if (path.startsWith("/websites")) websitesView(view);
   else if (path.startsWith("/terminal")) terminalView(view);
+  else if (path.startsWith("/apps")) appsView(view);
   else if (path.startsWith("/dns")) dnsView(view);
   else if (path.startsWith("/databases")) databasesView(view);
   else if (path.startsWith("/backups")) backupsView(view);
@@ -381,7 +382,8 @@ function websitesView(view) {
       return h("tr", {},
         h("td", { class: "name" },
           h("a", { href: scheme + "://" + s.domain, target: "_blank", rel: "noopener noreferrer" }, s.domain),
-          (s.aliases || []).length ? h("div", { class: "muted small" }, s.aliases.join(", ")) : null),
+          (s.aliases || []).length ? h("div", { class: "muted small" }, s.aliases.join(", ")) : null,
+          s.app === "wordpress" ? h("div", {}, h("span", { class: "badge ok" }, "WordPress"), h("a", { class: "small", href: scheme + "://" + s.domain + "/wp-admin/", target: "_blank", rel: "noopener noreferrer" }, "Admin")) : null),
         h("td", { class: "muted" }, typeName),
         h("td", {}, sslBadge(s), s.force_https ? h("span", { class: "badge" }, "HTTPS only") : null),
         h("td", {}, h("span", { class: "badge " + (s.enabled ? "ok" : "") }, s.enabled ? "Enabled" : "Disabled")),
@@ -554,6 +556,43 @@ function backupsView(view) {
           } }, "Delete"))))))));
   }
   drawMake(); loadList().then(drawSchedule);
+}
+
+/* ---- one-click apps ---- */
+function appsView(view) {
+  const notice = h("div"), resultBox = h("div");
+  view.append(h("div", { class: "topbar" }, h("h1", {}, "One-click apps")), notice, resultBox);
+  const dom = h("input", { type: "text", placeholder: "blog.example.com", autocomplete: "off", class: "mono" });
+  const title = h("input", { type: "text", placeholder: "My new site", autocomplete: "off" });
+  const user = h("input", { type: "text", autocomplete: "off" }); user.value = "siteadmin";
+  const mail = h("input", { type: "text", placeholder: "you@example.com", autocomplete: "off" });
+  const ssl = h("input", { type: "checkbox" }); ssl.checked = true;
+  const btn = h("button", { class: "btn primary", type: "submit" }, "Install WordPress");
+  const show = (r) => resultBox.replaceChildren(h("div", { class: "card setup" }, h("h2", {}, "WordPress is ready"),
+    r.setup_in_browser
+      ? h("p", {}, "The site is installed. Open it to finish the 5-minute setup (site title, admin user and password):")
+      : h("p", { class: "muted" }, "Save the admin password now; it is shown only once and is not stored anywhere."),
+    h("dl", { class: "kv" },
+      h("dt", {}, "Site"), h("dd", {}, h("a", { href: r.url, target: "_blank", rel: "noopener" }, r.url)),
+      h("dt", {}, r.setup_in_browser ? "Finish setup" : "Admin"), h("dd", {}, h("a", { href: r.admin_url, target: "_blank", rel: "noopener" }, r.admin_url)),
+      ...(r.admin_password ? [h("dt", {}, "Username"), h("dd", { class: "mono" }, r.admin_user), h("dt", {}, "Password"), h("dd", { class: "mono" }, r.admin_password)] : [])),
+    !r.ssl ? h("p", { class: "muted small" }, "It runs on HTTP for now. Once the domain points to this server, use Websites → Get SSL.") : null,
+    r.log ? h("pre", { class: "log" }, r.log) : null));
+  view.append(h("div", { class: "card" }, h("h2", {}, "WordPress"),
+    h("p", { class: "muted" }, "Creates a new website, a database and a user, downloads and checks WordPress, and sets it up. The domain's A record should already point to this server (DNS tab) so HTTPS can be issued. Installing Nginx, PHP and MariaDB for the first time can take a few minutes."),
+    h("form", { onsubmit: async (e) => {
+      e.preventDefault(); btn.disabled = true; resultBox.replaceChildren();
+      notice.replaceChildren(h("div", { class: "msg ok" }, "Installing… this can take several minutes. Keep this page open."));
+      try { const r = await api.post("api/apps/wordpress", { domain: dom.value, title: title.value, admin_user: user.value, admin_email: mail.value, ssl: ssl.checked }); notice.replaceChildren(); show(r); }
+      catch (x) { notice.replaceChildren(h("div", { class: "msg err" }, x.message), x.log ? h("pre", { class: "log" }, x.log) : null); }
+      finally { btn.disabled = false; }
+    } },
+    h("div", { class: "grid2" },
+      h("label", { class: "field" }, h("span", {}, "Domain (a new website)"), dom),
+      h("label", { class: "field" }, h("span", {}, "Site title"), title),
+      h("label", { class: "field" }, h("span", {}, "Admin username"), user),
+      h("label", { class: "field" }, h("span", {}, "Admin email"), mail)),
+    h("div", { class: "row" }, h("label", { class: "row" }, ssl, "Get a free HTTPS certificate"), btn))));
 }
 
 /* ---- dns (Cloudflare) ---- */
