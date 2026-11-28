@@ -55,6 +55,7 @@ type Server struct {
 	up      *updater.Updater
 	wp      *apps.WordPress
 	appBusy sync.Mutex
+	wpBusy  sync.Mutex
 	restart func() // restarts the panel service; replaced in tests
 	fs      *files.FS
 	ui      fs.FS
@@ -163,6 +164,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/dns/zones/{zone}/records/{id}", s.authed(s.handleDNSDelete))
 	mux.HandleFunc("POST /api/dns/zones/{zone}/point", s.authed(s.handleDNSPoint))
 	mux.HandleFunc("POST /api/apps/wordpress", s.authed(s.handleWordPressInstall))
+	s.registerWordPress(mux)
 	mux.HandleFunc("GET /api/update", s.authed(s.handleUpdateCheck))
 	mux.HandleFunc("POST /api/update/apply", s.authed(s.handleUpdateApply))
 	mux.HandleFunc("POST /api/panel/domain", s.authed(s.handlePanelDomainSet))
