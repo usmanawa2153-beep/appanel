@@ -130,8 +130,10 @@ main() {
 
   write_unit
   systemctl daemon-reload
-  systemctl enable --now appanel >/dev/null 2>&1
-  sleep 1
+  systemctl enable appanel >/dev/null 2>&1
+  # restart (not just start): on an upgrade the old binary is still running.
+  systemctl restart appanel >/dev/null 2>&1 || true
+  sleep 2
   systemctl is-active --quiet appanel || fail "service failed to start; see: journalctl -u appanel -n 50"
 
   open_firewall
@@ -142,6 +144,9 @@ main() {
     say "Appanel is running."
   fi
   echo
+  echo "Can't open the URL? Your hosting provider's own firewall (security group) must allow the"
+  echo "panel port shown above (TCP). Many clouds block unknown ports by default."
+  echo "Update later from the panel (Settings -> Updates) or by running this installer again."
   echo "Show the URL again any time:  APPANEL_DATA=$DATA_DIR appanel info"
   echo "Uninstall:                   curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | sudo bash -s -- --uninstall"
 }
@@ -150,6 +155,8 @@ main() {
 open_firewall() {
   command -v ufw >/dev/null 2>&1 || return 0
   ufw status 2>/dev/null | grep -qi "^Status: active" || return 0
+  # With a panel domain the panel is loopback-only behind Nginx; its port stays closed.
+  grep -q '"panel_domain"' "$DATA_DIR/config.json" 2>/dev/null && return 0
   local port
   port="$(APPANEL_DATA="$DATA_DIR" "$BIN" info --port 2>/dev/null || true)"
   [ -n "$port" ] || return 0

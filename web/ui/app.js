@@ -26,7 +26,7 @@ const api = {
   del: (u) => api.call("DELETE", u),
 };
 
-const state = { user: null, ticket: null, timer: null };
+const state = { user: null, ticket: null, timer: null, update: false };
 
 function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);
@@ -140,7 +140,7 @@ function shell() {
   const view = h("main", { class: "main" });
   const side = h("aside", { class: "side" },
     h("div", { class: "brand" }, h("img", { src: "favicon.svg", alt: "" }), "Appanel"),
-    h("nav", { class: "nav" }, link("/dashboard", "Dashboard"), link("/websites", "Websites"), link("/files", "File Manager"), link("/terminal", "Terminal"), link("/dns", "DNS"), link("/databases", "Databases"), link("/backups", "Backups"), link("/cron", "Cron jobs"), link("/firewall", "Firewall"), link("/settings", "Settings")),
+    h("nav", { class: "nav" }, link("/dashboard", "Dashboard"), link("/websites", "Websites"), link("/files", "File Manager"), link("/terminal", "Terminal"), link("/dns", "DNS"), link("/databases", "Databases"), link("/backups", "Backups"), link("/cron", "Cron jobs"), link("/firewall", "Firewall"), link("/settings", state.update ? "Settings ● update" : "Settings")),
     h("div", { class: "spacer" }),
     h("div", { class: "muted" }, `Signed in as ${state.user.username}`),
     h("div", { class: "row" },
@@ -898,6 +898,41 @@ function settingsView(view) {
     }
   }
   drawTwoFactor();
+  const upMsg = h("div"), upBody = h("div");
+  async function waitForRestart(oldVersion) {
+    say(upMsg, "Restarting the panel…", true);
+    for (let i = 0; i < 40; i++) {
+      await new Promise((r) => setTimeout(r, 1500));
+      try { const r = await (await fetch("api/ping", { cache: "no-store" })).json(); if (r.version && r.version !== oldVersion) { location.reload(); return; } } catch { /* still restarting */ }
+    }
+    say(upMsg, "The panel did not come back with the new version yet. Wait a little and reload the page.");
+  }
+  async function drawUpdate(force) {
+    upBody.replaceChildren(h("p", { class: "muted" }, "Checking…"));
+    let u;
+    try { u = await api.get("api/update" + (force ? "?force=1" : "")); } catch (x) {
+      upBody.replaceChildren(h("p", { class: "muted" }, "Could not check for updates: " + x.message),
+        h("button", { class: "btn sm", onclick: () => drawUpdate(true) }, "Try again")); return;
+    }
+    state.update = u.available;
+    const pw = h("input", { type: "password", autocomplete: "current-password" });
+    const kids = [h("dl", { class: "kv" }, h("dt", {}, "Installed"), h("dd", { class: "mono" }, u.current), h("dt", {}, "Latest"), h("dd", { class: "mono" }, u.latest))];
+    if (!u.can_update) kids.push(h("p", { class: "muted" }, "This is a development build, so it cannot compare versions. Install a release (the installer below) to enable one-click updates."));
+    else if (u.available) {
+      if (u.notes) kids.push(h("pre", { class: "log" }, u.notes));
+      if (u.can_update) kids.push(h("label", { class: "field" }, h("span", {}, "Confirm password to update"), pw),
+        h("button", { class: "btn primary", onclick: async (e) => {
+          const btn = e.currentTarget; btn.disabled = true; say(upMsg, "Downloading and verifying the update…", true);
+          try { const r = await api.post("api/update/apply", { password: pw.value }); waitForRestart(u.current); }
+          catch (x) { say(upMsg, x.message); btn.disabled = false; }
+        } }, "Update to " + u.latest));
+    } else kids.push(h("p", { class: "muted" }, "You are on the latest version."));
+    kids.push(h("p", { class: "muted small" }, "Or from a terminal: ", h("span", { class: "mono" }, "appanel update"), "  ·  or re-run the installer: ", h("span", { class: "mono" }, u.one_liner)),
+      h("button", { class: "btn sm", onclick: () => drawUpdate(true) }, "Check again"));
+    upBody.replaceChildren(...kids);
+  }
+  drawUpdate(false);
+  const upCard = h("div", { class: "card" }, h("h2", {}, "Updates"), upMsg, upBody);
   const domMsg = h("div"), pathMsg = h("div");
   const domBody = h("div"), pathBody = h("div");
   const done = (box, r, what) => box.replaceChildren(h("div", { class: "msg ok" }, what + " The panel is restarting; open the new address in about 5 seconds:"),
@@ -943,12 +978,13 @@ function settingsView(view) {
   api.get("api/settings").then((x) => { drawDomain(x); drawPath(x); }).catch((x) => { say(domMsg, x.message); });
   const domCard = h("div", { class: "card" }, h("h2", {}, "Panel domain"), domMsg, domBody);
   const pathCard = h("div", { class: "card" }, h("h2", {}, "Login URL"), pathMsg, pathBody);
-  view.append(h("div", { class: "topbar" }, h("h1", {}, "Settings")), h("div", { class: "grid" }, domCard, pathCard, acmeCard, pwCard, tfCard));
+  view.append(h("div", { class: "topbar" }, h("h1", {}, "Settings")), h("div", { class: "grid" }, upCard, domCard, pathCard, acmeCard, pwCard, tfCard));
 }
 
 /* ---- boot ---- */
 async function boot() {
   try { state.user = await api.get("api/me"); } catch { state.user = null; }
+  if (state.user) api.get("api/update").then((u) => { if (u.available && !state.update) { state.update = true; render(); } }).catch(() => {});
   if (state.user && !location.hash) location.hash = "/dashboard";
   render();
 }

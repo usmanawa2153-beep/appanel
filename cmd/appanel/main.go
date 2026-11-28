@@ -10,8 +10,10 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/usmanawa2153-beep/appanel/internal/auth"
 	"github.com/usmanawa2153-beep/appanel/internal/backups"
@@ -20,6 +22,7 @@ import (
 	"github.com/usmanawa2153-beep/appanel/internal/server"
 	"github.com/usmanawa2153-beep/appanel/internal/store"
 	"github.com/usmanawa2153-beep/appanel/internal/tlsutil"
+	"github.com/usmanawa2153-beep/appanel/internal/updater"
 	"github.com/usmanawa2153-beep/appanel/web"
 )
 
@@ -33,6 +36,7 @@ Usage:
   appanel serve
   appanel reset-password [--user NAME]
   appanel disable-2fa [--user NAME]
+  appanel update [--check]
   appanel domain set <domain> [--email you@example.com] | unset | show
   appanel path show | set /your-secret-path | set --random
   appanel backup-all [--keep N]
@@ -57,6 +61,8 @@ func main() {
 		err = cmdReset(os.Args[2:])
 	case "disable-2fa":
 		err = cmdDisable2FA(os.Args[2:])
+	case "update":
+		err = cmdUpdate(os.Args[2:])
 	case "domain":
 		err = cmdDomain(os.Args[2:])
 	case "path":
@@ -148,6 +154,10 @@ func scheme(cfg *config.Config) string {
 }
 
 func printAccess(cfg *config.Config) {
+	if cfg.PanelDomain != "" {
+		fmt.Printf("\n  URL:      https://%s%s/\n  (served through Nginx on your domain; the server's IP address does not open the panel)\n", cfg.PanelDomain, cfg.SecretPath)
+		return
+	}
 	host := cfg.Host
 	if host == "" {
 		host = cfg.Listen
@@ -275,5 +285,41 @@ func cmdBackupAll(args []string) error {
 	if len(problems) > 0 {
 		return fmt.Errorf("%d problem(s)", len(problems))
 	}
+	return nil
+}
+
+// cmdUpdate checks for, and installs, the newest release.
+func cmdUpdate(args []string) error {
+	fs := flag.NewFlagSet("update", flag.ContinueOnError)
+	check := fs.Bool("check", false, "only report whether an update exists")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	u := updater.New(version)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	defer cancel()
+	info, err := u.Check(ctx, true)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Installed: %s\nLatest:    %s\n", info.Current, info.Latest)
+	if !info.Available {
+		fmt.Println("You are up to date.")
+		return nil
+	}
+	if *check {
+		fmt.Println("An update is available. Run: appanel update")
+		return nil
+	}
+	v, err := u.Apply(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Println("Installed", v)
+	if exec.Command("systemctl", "is-active", "--quiet", "appanel").Run() == nil {
+		fmt.Println("Restarting the panel…")
+		return exec.Command("systemctl", "restart", "appanel").Run()
+	}
+	fmt.Println("Restart the panel to use it: systemctl restart appanel")
 	return nil
 }

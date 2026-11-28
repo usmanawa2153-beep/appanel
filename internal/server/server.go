@@ -27,6 +27,7 @@ import (
 	"github.com/usmanawa2153-beep/appanel/internal/sites"
 	"github.com/usmanawa2153-beep/appanel/internal/store"
 	"github.com/usmanawa2153-beep/appanel/internal/system"
+	"github.com/usmanawa2153-beep/appanel/internal/updater"
 )
 
 const (
@@ -49,6 +50,7 @@ type Server struct {
 	bk      *backups.Manager
 	dns     *dns.Client
 	dataDir string
+	up      *updater.Updater
 	restart func() // restarts the panel service; replaced in tests
 	fs      *files.FS
 	ui      fs.FS
@@ -85,6 +87,7 @@ func New(cfg *config.Config, st *store.Store, ui fs.FS, version string) (*Server
 		version: version,
 		secure:  cfg.SecureCookies(),
 		dataDir: config.DefaultDataDir(),
+		up:      updater.New(version),
 		restart: restartService,
 		dummy:   dummy,
 	}, nil
@@ -153,6 +156,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/dns/zones/{zone}/records/{id}", s.authed(s.handleDNSUpdate))
 	mux.HandleFunc("DELETE /api/dns/zones/{zone}/records/{id}", s.authed(s.handleDNSDelete))
 	mux.HandleFunc("POST /api/dns/zones/{zone}/point", s.authed(s.handleDNSPoint))
+	mux.HandleFunc("GET /api/update", s.authed(s.handleUpdateCheck))
+	mux.HandleFunc("POST /api/update/apply", s.authed(s.handleUpdateApply))
 	mux.HandleFunc("POST /api/panel/domain", s.authed(s.handlePanelDomainSet))
 	mux.HandleFunc("DELETE /api/panel/domain", s.authed(s.handlePanelDomainUnset))
 	mux.HandleFunc("POST /api/panel/path", s.authed(s.handlePanelPath))

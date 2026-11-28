@@ -27,6 +27,7 @@ A self-hosted hosting control panel for Ubuntu and Debian servers, in the spirit
 | Wildcard SSL: one certificate for `domain` and `*.domain` via Cloudflare DNS-01; subdomain sites can reuse it with one click | done |
 | Panel domain: open the panel at `https://your-domain/secret-path/` with a real certificate; once attached the server's IP address no longer opens the panel (CLI: `appanel domain set`, or Settings) | done |
 | Custom login URL: choose your own secret path or generate one (CLI: `appanel path set`, or Settings) | done |
+| Updates: see the latest release, one-click update from Settings (checksum-verified, test-run before it replaces the binary), `appanel update`, or re-run the installer | done |
 | Free SSL: Let's Encrypt via Certbot (HTTP-01), expiry shown in the panel, "Force HTTPS", auto-renewal | done |
 | One-click "Install Nginx & Certbot" (and optionally PHP-FPM) from the panel | done |
 | Full-screen terminal programs (vim, nano, htop) | not yet |
@@ -96,6 +97,7 @@ APPANEL_DATA=./data ./bin/appanel serve
 - The Cloudflare token is checked with Cloudflare before it is saved, is stored only in the panel's private data file, is sent only in an Authorization header, and is never returned by any API call. "Point to server" refuses to overwrite a CNAME so mail and other records are not broken silently.
 - For wildcard certificates the Cloudflare token is also written to `/etc/appanel/cloudflare.ini` (folder 0700, file 0600) because certbot needs it for automatic renewals. If you change the token, request the wildcard certificate again so renewals use the new one.
 - With a panel domain the panel listens on 127.0.0.1 only and answers requests for that exact host name; anything else (the IP address, another name) gets a blank 404, and Nginx is the only way in. The login limiter then uses the real client address that Nginx sets in `X-Real-IP`, trusted only from the loopback socket. The panel's own Nginx site cannot be disabled or removed from the Websites page. Changing the domain or login URL asks for your password again and applies the new settings only after the domain's certificate was obtained, so a failure cannot lock you out.
+- Updates download only from this project's GitHub releases, are verified against the published SHA-256, started once as a test, and only then replace the installed binary (the old one is kept as `appanel.prev`). Applying an update asks for your password.
 - Cron commands run as root; they are single-line only and `%` is escaped so a command cannot be split.
 - The terminal WebSocket needs a valid session and a same-origin `Origin` header (blocks cross-site hijacking), and is capped at 5 open terminals.
 - The panel runs as root because it has to manage the server. Treat access to it like root SSH access: keep 2FA on and the port firewalled where you can.
@@ -123,6 +125,7 @@ internal/server/    HTTP API and security headers
 internal/sites/     websites: validation, Nginx vhosts, Let's Encrypt
 internal/backups/   site and database backups
 internal/dns/       Cloudflare API client
+internal/updater/   release check and self-update
 internal/cron/      cron jobs rendered into /etc/cron.d
 internal/databases/ MariaDB/MySQL and PostgreSQL management
 internal/firewall/  ufw driver with lock-out protection
