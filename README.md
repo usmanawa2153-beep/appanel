@@ -29,6 +29,8 @@ A self-hosted hosting control panel for Ubuntu and Debian servers, in the spirit
 | Custom login URL: choose your own secret path or generate one (CLI: `appanel path set`, or Settings) | done |
 | Updates: see the latest release, one-click update from Settings (checksum-verified, test-run before it replaces the binary), `appanel update`, or re-run the installer | done |
 | One-click WordPress: new site + database + user, checksum-verified download, wp-config with fresh salts, automatic setup (WP-CLI), optional HTTPS; rolls back if anything fails | done |
+| WordPress manager: change any user's password (or generate one), install, update, activate and delete plugins and themes from WordPress.org, site settings, permalinks, maintenance mode, core updates, cache flush | done |
+| Redesigned interface: grouped sidebar, health checklist dashboard, dialogs and toasts instead of browser pop-ups, Ctrl+K quick jump, light and dark themes, mobile layout | done |
 | Free SSL: Let's Encrypt via Certbot (HTTP-01), expiry shown in the panel, "Force HTTPS", auto-renewal | done |
 | One-click "Install Nginx & Certbot" (and optionally PHP-FPM) from the panel | done |
 | Full-screen terminal programs (vim, nano, htop) | not yet |

@@ -28,21 +28,6 @@ const api = {
 
 const state = { user: null, ticket: null, timer: null, update: false };
 
-function h(tag, attrs, ...kids) {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs || {})) {
-    if (v == null || v === false) continue;
-    if (k === "class") el.className = v;
-    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
-    else if (k === "value") el.value = v;
-    else el.setAttribute(k, v === true ? "" : v);
-  }
-  for (const kid of kids.flat()) {
-    if (kid == null || kid === false) continue;
-    el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
-  }
-  return el;
-}
 
 const root = document.getElementById("app");
 const fmtBytes = (n) => {
@@ -97,6 +82,9 @@ function loginView() {
   const showErr = (m) => { err.textContent = m; err.hidden = false; };
   const card = h("div", { class: "card" });
 
+  function head(title, lede) {
+    return [h("img", { class: "logo", src: "favicon.svg", alt: "" }), h("h1", {}, title), h("p", { class: "lede" }, lede), err];
+  }
   function passwordStep() {
     const u = h("input", { type: "text", autocomplete: "username", autofocus: true });
     const p = h("input", { type: "password", autocomplete: "current-password" });
@@ -114,7 +102,7 @@ function loginView() {
       h("label", { class: "field" }, h("span", {}, "Username"), u),
       h("label", { class: "field" }, h("span", {}, "Password"), p),
       btn);
-    card.replaceChildren(h("img", { class: "logo", src: "favicon.svg", alt: "" }), h("h1", {}, "Sign in to Appanel"), err, form);
+    card.replaceChildren(...head("Welcome back", "Sign in to manage your server."), form);
   }
   function twoFactorStep() {
     const c = h("input", { type: "text", inputmode: "numeric", autocomplete: "one-time-code", maxlength: "6", autofocus: true });
@@ -127,27 +115,71 @@ function loginView() {
       },
     }, h("label", { class: "field" }, h("span", {}, "6-digit code from your authenticator app"), c), btn);
     err.hidden = true;
-    card.replaceChildren(h("img", { class: "logo", src: "favicon.svg", alt: "" }), h("h1", {}, "Two-factor check"), err, form);
+    card.replaceChildren(...head("Two-factor check", "Enter the code from your authenticator app."), form);
   }
   passwordStep();
-  return h("div", { class: "auth" }, card);
+
+  const NS = "http://www.w3.org/2000/svg";
+  const art = document.createElementNS(NS, "svg");
+  art.setAttribute("class", "grid-art"); art.setAttribute("viewBox", "0 0 400 400"); art.setAttribute("preserveAspectRatio", "xMidYMid slice");
+  for (let i = 0; i <= 400; i += 40) {
+    for (const [x1, y1, x2, y2] of [[i, 0, i, 400], [0, i, 400, i]]) {
+      const l = document.createElementNS(NS, "line");
+      l.setAttribute("x1", x1); l.setAttribute("y1", y1); l.setAttribute("x2", x2); l.setAttribute("y2", y2);
+      l.setAttribute("stroke", "#1d2c36"); l.setAttribute("stroke-width", "1");
+      art.append(l);
+    }
+  }
+  return h("div", { class: "auth" },
+    h("div", { class: "auth-art" }, art,
+      h("div", {}, h("h2", {}, "Your server, in one calm place."),
+        h("p", {}, "Websites, SSL, databases, backups and WordPress. Self-hosted, no subscriptions."))),
+    h("div", { class: "auth-panel" }, card));
 }
 
 /* ---- shell ---- */
+const NAV = [
+  ["Overview", [["/dashboard", "Dashboard", "dashboard"]]],
+  ["Hosting", [["/websites", "Websites", "globe"], ["/apps", "One-click apps", "apps"], ["/dns", "DNS", "dns"], ["/databases", "Databases", "database"]]],
+  ["Server", [["/files", "File manager", "folder"], ["/terminal", "Terminal", "terminal"], ["/cron", "Cron jobs", "clock"], ["/firewall", "Firewall", "shield"], ["/backups", "Backups", "backup"]]],
+  ["Panel", [["/settings", "Settings", "settings"]]],
+];
+
+function currentlyDark() {
+  return document.documentElement.dataset.theme
+    ? document.documentElement.dataset.theme === "dark"
+    : matchMedia("(prefers-color-scheme: dark)").matches;
+}
+
 function shell() {
   const { path } = route();
-  const link = (to, label) => h("a", { class: path.startsWith(to) ? "on" : "", onclick: () => go(to) }, label);
   const view = h("main", { class: "main" });
-  const side = h("aside", { class: "side" },
+  const side = h("aside", { class: "side" });
+  const closeMenu = () => side.classList.remove("open");
+  const link = ([to, label, ic]) => h("a", {
+    class: path.startsWith(to) || (to === "/websites" && path.startsWith("/wordpress")) ? "on" : "",
+    href: "#" + to, onclick: closeMenu,
+  }, icon(ic), label, to === "/settings" && state.update ? h("span", { class: "dot", title: "Update available" }) : null);
+
+  const themeBtn = h("button", { title: "Switch theme", onclick: () => { toggleTheme(); themeBtn.replaceChildren(icon(currentlyDark() ? "sun" : "moon"), "Theme"); } },
+    icon(currentlyDark() ? "sun" : "moon"), "Theme");
+  side.append(
     h("div", { class: "brand" }, h("img", { src: "favicon.svg", alt: "" }), "Appanel"),
-    h("nav", { class: "nav" }, link("/dashboard", "Dashboard"), link("/websites", "Websites"), link("/apps", "One-click apps"), link("/files", "File Manager"), link("/terminal", "Terminal"), link("/dns", "DNS"), link("/databases", "Databases"), link("/backups", "Backups"), link("/cron", "Cron jobs"), link("/firewall", "Firewall"), link("/settings", state.update ? "Settings ● update" : "Settings")),
+    h("nav", { class: "nav" }, NAV.flatMap(([g, items]) => [h("div", { class: "nav-group" }, g), ...items.map(link)])),
     h("div", { class: "spacer" }),
-    h("div", { class: "muted" }, `Signed in as ${state.user.username}`),
-    h("div", { class: "row" },
-      h("button", { class: "btn sm", onclick: toggleTheme }, "Theme"),
-      h("button", { class: "btn sm", onclick: async () => { try { await api.post("api/logout"); } catch { /* already out */ } state.user = null; render(); } }, "Sign out")));
+    h("div", { class: "side-card" },
+      h("div", { class: "host" }, state.host || "This server"),
+      h("div", { class: "meta" }, h("span", {}, state.user.username), h("span", {}, "v" + String(state.user.version).replace(/^v/, "")))),
+    h("div", { class: "side-actions" }, themeBtn,
+      h("button", { title: "Sign out", onclick: async () => { try { await api.post("api/logout"); } catch { /* already out */ } state.user = null; render(); } }, icon("logout"), "Sign out")));
+
+  const bar = h("div", { class: "mobile-bar" },
+    h("button", { "aria-label": "Menu", onclick: () => side.classList.toggle("open") }, icon("menu")), "Appanel",
+    h("button", { "aria-label": "Search", onclick: openPalette }, icon("search")));
+
   if (path.startsWith("/files")) filesView(view);
   else if (path.startsWith("/websites")) websitesView(view);
+  else if (path.startsWith("/wordpress")) wordpressView(view, Number(path.split("/")[2]));
   else if (path.startsWith("/terminal")) terminalView(view);
   else if (path.startsWith("/apps")) appsView(view);
   else if (path.startsWith("/dns")) dnsView(view);
@@ -157,30 +189,88 @@ function shell() {
   else if (path.startsWith("/firewall")) firewallView(view);
   else if (path.startsWith("/settings")) settingsView(view);
   else dashboardView(view);
-  return h("div", { class: "shell" }, side, view);
+  return h("div", {}, bar, h("div", { class: "shell" }, side, view));
 }
+
+/* ---- command palette (Ctrl/Cmd+K) ---- */
+function openPalette() {
+  if (!state.user || document.querySelector("dialog.cmdk")) return;
+  const items = NAV.flatMap(([, i]) => i).map(([to, label, ic]) => ({ to, label, ic }));
+  items.push({ to: "/wordpress", label: "WordPress sites", ic: "globe", go: "/websites" });
+  const dlg = h("dialog", { class: "cmdk" });
+  const input = h("input", { type: "text", placeholder: "Jump to…", "aria-label": "Jump to a page" });
+  const list = h("ul");
+  let shown = items, sel = 0;
+  const close = () => { dlg.close(); dlg.remove(); };
+  const pick = (it) => { close(); go(it.go || it.to); };
+  const draw = () => {
+    list.replaceChildren(...shown.map((it, i) => h("li", { class: i === sel ? "on" : "", onclick: () => pick(it) }, icon(it.ic), it.label)));
+    if (!shown.length) list.replaceChildren(h("li", {}, "Nothing matches"));
+  };
+  input.addEventListener("input", () => { const q = input.value.toLowerCase(); shown = items.filter((i) => i.label.toLowerCase().includes(q)); sel = 0; draw(); });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") { sel = Math.min(sel + 1, shown.length - 1); draw(); e.preventDefault(); }
+    else if (e.key === "ArrowUp") { sel = Math.max(sel - 1, 0); draw(); e.preventDefault(); }
+    else if (e.key === "Enter" && shown[sel]) pick(shown[sel]);
+  });
+  dlg.addEventListener("click", (e) => { if (e.target === dlg) close(); });
+  dlg.addEventListener("close", () => dlg.remove());
+  dlg.append(input, list);
+  document.body.append(dlg);
+  draw(); dlg.showModal(); input.focus();
+}
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openPalette(); }
+});
 
 /* ---- dashboard ---- */
 function dashboardView(view) {
-  const body = h("div", { class: "grid" });
-  view.append(h("div", { class: "topbar" }, h("h1", {}, "Dashboard")), body);
+  const body = h("div");
+  view.append(ui.pageHead("Dashboard", "How your server is doing right now."), body);
+  let extra = { fw: null, backups: null, sites: null, status: null, upd: null };
+  const loadExtra = () => Promise.allSettled([api.get("api/firewall"), api.get("api/backups"), api.get("api/sites"), api.get("api/sites/status"), api.get("api/update")])
+    .then(([fw, bk, st, ss, up]) => { extra = { fw: fw.value, backups: bk.value, sites: st.value, status: ss.value, upd: up.value }; });
+
+  function checks(s) {
+    const out = [];
+    const diskP = pct(s.disk.used, s.disk.total), memP = pct(s.mem.used, s.mem.total);
+    if (extra.upd && extra.upd.available) out.push({ lvl: "warn", t: "Panel update available", d: `Version ${extra.upd.latest} is ready to install.`, to: "/settings", b: "Update" });
+    if (extra.fw && extra.fw.installed && !extra.fw.active) out.push({ lvl: "warn", t: "Firewall is off", d: "Every port on this server is reachable from the internet.", to: "/firewall", b: "Open firewall" });
+    if (extra.fw && !extra.fw.installed) out.push({ lvl: "warn", t: "Firewall is not installed", d: "Install UFW to control which ports are open.", to: "/firewall", b: "Set up" });
+    if (extra.status && !extra.status.nginx_installed) out.push({ lvl: "warn", t: "Nginx is not installed", d: "You need it to host websites.", to: "/websites", b: "Install" });
+    if (extra.backups && (extra.backups.backups || []).length === 0 && (extra.sites?.sites || []).some((x) => !x.panel)) out.push({ lvl: "warn", t: "No backups yet", d: "Make a backup of your sites and databases before something goes wrong.", to: "/backups", b: "Back up" });
+    if (diskP > 85) out.push({ lvl: diskP > 95 ? "bad" : "warn", t: `Disk is ${diskP.toFixed(0)}% full`, d: "Free some space or old backups to keep things running.", to: "/files", b: "Open files" });
+    if (memP > 90) out.push({ lvl: "bad", t: `Memory is ${memP.toFixed(0)}% used`, d: "Apps may be killed. Consider adding swap or RAM.", to: null });
+    return out;
+  }
 
   async function refresh() {
     let s;
     try { s = await api.get("api/system"); } catch (x) { body.replaceChildren(h("div", { class: "msg err" }, x.message)); return; }
+    state.host = s.hostname;
     const memP = pct(s.mem.used, s.mem.total), diskP = pct(s.disk.used, s.disk.total);
-    const stat = (label, value, p, sub) => h("div", { class: "card stat" },
-      h("div", { class: "label" }, label), h("div", { class: "value" }, value),
-      p == null ? null : h("div", { class: "bar" }, (() => { const i = h("i", { class: level(p) }); i.style.width = p.toFixed(1) + "%"; return i; })()),
-      h("div", { class: "sub" }, sub));
+    const meter = (p) => { const i = h("i", { class: level(p) }); i.style.width = p.toFixed(1) + "%"; return h("div", { class: "meter" }, i); };
+    const inst = (name, val, p, sub) => h("div", { class: "inst" }, h("div", { class: "name" }, name), meter(p), h("div", { class: "val" }, val), h("div", { class: "sub" }, sub));
     const spark = h("canvas", { class: "spark" });
+    const cs = checks(s);
+    const checkCard = h("div", { class: "card flush" },
+      h("div", { class: "card-head" }, h("h2", {}, "Needs attention"), cs.length ? h("span", { class: "badge warn" }, String(cs.length)) : null),
+      h("div", { class: "checks" }, cs.length ? cs.map((c) => h("div", { class: "check " + c.lvl },
+        h("span", { class: "sig" }), h("div", { class: "what" }, h("b", {}, c.t), h("span", {}, c.d)),
+        c.to ? h("button", { class: "btn sm", onclick: () => go(c.to) }, c.b) : null))
+        : h("div", { class: "check" }, h("span", { class: "sig" }), h("div", { class: "what" }, h("b", {}, "All clear"), h("span", {}, "Nothing needs your attention right now.")))));
+    const short = [["/websites", "Add a website", "globe"], ["/apps", "Install WordPress", "apps"], ["/databases", "New database", "database"], ["/backups", "Back up now", "backup"], ["/terminal", "Open terminal", "terminal"]];
     body.replaceChildren(
-      stat("CPU", s.cpu_percent.toFixed(1) + "%", s.cpu_percent, `${s.cores} cores · load ${s.load.map((v) => v.toFixed(2)).join(" ")}`),
-      stat("Memory", memP.toFixed(0) + "%", memP, `${fmtBytes(s.mem.used)} of ${fmtBytes(s.mem.total)}` + (s.mem.swap_total ? ` · swap ${fmtBytes(s.mem.swap_used)}/${fmtBytes(s.mem.swap_total)}` : "")),
-      stat("Disk /", diskP.toFixed(0) + "%", diskP, `${fmtBytes(s.disk.used)} of ${fmtBytes(s.disk.total)}`),
-      stat("Network", "↓ " + fmtBytes(s.net.rx_rate) + "/s", null, `↑ ${fmtBytes(s.net.tx_rate)}/s · total ↓ ${fmtBytes(s.net.rx_bytes)} ↑ ${fmtBytes(s.net.tx_bytes)}`),
-      h("div", { class: "card wide" }, h("h2", {}, "CPU history (last 2 minutes)"), spark),
-      h("div", { class: "card wide" }, h("h2", {}, "Server"),
+      h("div", { class: "bridge" },
+        h("div", { class: "card instruments" },
+          inst("CPU", s.cpu_percent.toFixed(0) + "%", s.cpu_percent, `${s.cores} cores, load ${s.load.map((v) => v.toFixed(2)).join(" ")}`),
+          inst("Memory", memP.toFixed(0) + "%", memP, `${fmtBytes(s.mem.used)} of ${fmtBytes(s.mem.total)}` + (s.mem.swap_total ? `, swap ${fmtBytes(s.mem.swap_used)}/${fmtBytes(s.mem.swap_total)}` : "")),
+          inst("Disk", diskP.toFixed(0) + "%", diskP, `${fmtBytes(s.disk.used)} of ${fmtBytes(s.disk.total)} on /`),
+          h("div", { class: "inst" }, h("div", { class: "name" }, "Network"), h("div", {}), h("div", { class: "val" }, "↓ " + fmtBytes(s.net.rx_rate) + "/s"), h("div", { class: "sub" }, `↑ ${fmtBytes(s.net.tx_rate)}/s. Total ↓ ${fmtBytes(s.net.rx_bytes)} ↑ ${fmtBytes(s.net.tx_bytes)}`)),
+          h("div", { class: "inst chart" }, h("div", { class: "name" }, "CPU, last 2 minutes"), spark)),
+        checkCard),
+      h("div", { class: "shortcuts" }, short.map(([to, label, ic]) => h("a", { class: "shortcut", href: "#" + to }, icon(ic), label))),
+      h("div", { class: "card" }, h("h2", {}, "Server"),
         h("dl", { class: "kv" },
           h("dt", {}, "Hostname"), h("dd", {}, s.hostname),
           h("dt", {}, "OS"), h("dd", {}, s.os),
@@ -189,8 +279,10 @@ function dashboardView(view) {
           h("dt", {}, "Panel"), h("dd", {}, state.user.version))));
     drawSpark(spark, s.cpu_history);
   }
-  refresh();
-  state.timer = setInterval(refresh, 3000);
+  loadExtra().then(refresh);
+  state.timer = setInterval(() => { refresh(); }, 3000);
+  const slow = setInterval(loadExtra, 60000);
+  state.onLeave = () => clearInterval(slow);
 }
 
 function drawSpark(c, data) {
@@ -199,7 +291,7 @@ function drawSpark(c, data) {
   c.width = w * dpr; c.height = hgt * dpr;
   const g = c.getContext("2d"); g.scale(dpr, dpr);
   const css = getComputedStyle(document.documentElement);
-  const accent = css.getPropertyValue("--accent").trim(), border = css.getPropertyValue("--border").trim();
+  const accent = css.getPropertyValue("--teal").trim() || "#0b7a75", border = css.getPropertyValue("--line").trim();
   g.strokeStyle = border; g.lineWidth = 1;
   for (const y of [0.25, 0.5, 0.75]) { g.beginPath(); g.moveTo(0, hgt * y); g.lineTo(w, hgt * y); g.stroke(); }
   if (data.length < 2) return;
@@ -236,14 +328,14 @@ function filesView(view) {
   } });
 
   view.append(
-    h("div", { class: "topbar" }, h("h1", {}, "File Manager"),
+    h("div", { class: "page-head" }, h("h1", { class: "page-title" }, "File manager"),
       h("div", { class: "row" },
         h("button", { class: "btn", onclick: async () => {
-          const n = prompt("New folder name"); if (!n) return;
+          const n = await ui.prompt("New folder name"); if (!n) return;
           try { await api.post("api/files/mkdir", { path: joinPath(cur, n) }); load(); } catch (x) { say(x.message); }
         } }, "New folder"),
         h("button", { class: "btn", onclick: async () => {
-          const n = prompt("New file name"); if (!n) return;
+          const n = await ui.prompt("New file name"); if (!n) return;
           try { await api.put("api/files/content", { path: joinPath(cur, n), content: "" }); go("/files?path=" + encodeURIComponent(cur) + "&edit=" + encodeURIComponent(joinPath(cur, n))); } catch (x) { say(x.message); }
         } }, "New file"),
         h("button", { class: "btn primary", onclick: () => upload.click() }, "Upload"), upload)),
@@ -266,11 +358,11 @@ function filesView(view) {
       h("td", { class: "act" }, h("div", { class: "row" },
         e.is_dir ? null : h("a", { class: "btn sm", href: "api/files/download?path=" + encodeURIComponent(e.path), download: "" }, "Download"),
         h("button", { class: "btn sm", onclick: async () => {
-          const n = prompt("Rename to", e.name); if (!n || n === e.name) return;
+          const n = await ui.prompt("Rename to", e.name); if (!n || n === e.name) return;
           try { await api.post("api/files/rename", { from: e.path, to: joinPath(cur, n) }); load(); } catch (x) { say(x.message); }
         } }, "Rename"),
         h("button", { class: "btn sm danger", onclick: async () => {
-          if (!confirm(`Delete ${e.name}${e.is_dir ? " and everything inside it" : ""}? This cannot be undone.`)) return;
+          if (!await ui.confirm(`Delete ${e.name}${e.is_dir ? " and everything inside it" : ""}? This cannot be undone.`)) return;
           try { await api.del("api/files?path=" + encodeURIComponent(e.path)); load(); } catch (x) { say(x.message); }
         } }, "Delete")))));
     tableBox.replaceChildren(h("table", { class: "files" },
@@ -295,7 +387,7 @@ async function editorView(view, file) {
     if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); save.click(); }
     if (e.key === "Tab") { e.preventDefault(); const s = ta.selectionStart; ta.setRangeText("\t", s, ta.selectionEnd, "end"); }
   });
-  view.append(h("div", { class: "topbar" }, h("h1", { class: "mono" }, file),
+  view.append(h("div", { class: "page-head" }, h("h1", { class: "page-title mono" }, file),
     h("div", { class: "row" }, h("button", { class: "btn", onclick: back }, "Close"), save)), notice, ta);
   try { ta.value = (await api.get("api/files/content?path=" + encodeURIComponent(file))).content; }
   catch (x) { notice.replaceChildren(h("div", { class: "msg err" }, x.message)); ta.disabled = true; save.disabled = true; }
@@ -310,7 +402,7 @@ function websitesView(view) {
   const setupBox = h("div");
   const formBox = h("div");
   const listBox = h("div", { class: "card table-wrap" }, "Loading…");
-  view.append(h("div", { class: "topbar" }, h("h1", {}, "Websites")), notice, setupBox, formBox, listBox);
+  view.append(ui.pageHead("Websites", "Domains served by Nginx, with SSL and one-click WordPress."), notice, setupBox, formBox, listBox);
 
   let status = null;
 
@@ -319,7 +411,7 @@ function websitesView(view) {
     if (status.nginx_installed && status.certbot_installed) { setupBox.replaceChildren(); return; }
     const php = h("input", { type: "checkbox" });
     const btn = h("button", { class: "btn primary", onclick: async () => {
-      if (!confirm("Install Nginx and Certbot with apt now? This can take a few minutes.")) return;
+      if (!await ui.confirm("Install Nginx and Certbot with apt now? This can take a few minutes.")) return;
       btn.disabled = true; say("Installing… please keep this page open.", true);
       try { const r = await api.post("api/sites/setup", { php: php.checked }); say("Installed.", true, r.log); await loadStatus(); drawForm(); }
       catch (x) { say(x.message); } finally { btn.disabled = false; }
@@ -388,6 +480,7 @@ function websitesView(view) {
         h("td", {}, sslBadge(s), s.force_https ? h("span", { class: "badge" }, "HTTPS only") : null),
         h("td", {}, h("span", { class: "badge " + (s.enabled ? "ok" : "") }, s.enabled ? "Enabled" : "Disabled")),
         h("td", { class: "act" }, h("div", { class: "row" },
+          s.app === "wordpress" ? h("button", { class: "btn sm primary", onclick: () => go("/wordpress/" + s.id) }, "Manage") : null,
           s.root ? h("button", { class: "btn sm", onclick: () => go("/files?path=" + encodeURIComponent(s.root)) }, "Files") : null,
           !s.ssl ? h("button", { class: "btn sm", onclick: async (e) => {
             const b = e.currentTarget; b.disabled = true; say("Requesting a certificate from Let's Encrypt…", true);
@@ -400,14 +493,14 @@ function websitesView(view) {
             catch (x) { say(x.message); } finally { b.disabled = false; }
           } }, "Use *." + s.wildcard_from + " cert") : null,
           h("button", { class: "btn sm", onclick: async (e) => {
-            if (!confirm(`Get one certificate for ${s.domain} and *.${s.domain}? It is verified through your Cloudflare account (DNS tab must be connected). This can take a minute.`)) return;
+            if (!await ui.confirm(`Get one certificate for ${s.domain} and *.${s.domain}? It is verified through your Cloudflare account (DNS tab must be connected). This can take a minute.`)) return;
             const b = e.currentTarget; b.disabled = true; say("Requesting a wildcard certificate, this takes about a minute…", true);
             try { const r = await api.post("api/sites/" + s.id + "/ssl/wildcard"); say("Wildcard certificate installed.", true, r.log); loadList(); }
             catch (x) { say(x.message, false, x.log); } finally { b.disabled = false; }
           } }, "Wildcard SSL"),
           s.panel ? h("span", { class: "badge ok" }, "Panel") : h("button", { class: "btn sm", onclick: () => patch(s, { enabled: !s.enabled }) }, s.enabled ? "Disable" : "Enable"),
           s.panel ? null : h("button", { class: "btn sm danger", onclick: async () => {
-            if (!confirm(`Remove ${s.domain} from Nginx? Its files and certificate are kept on the server.`)) return;
+            if (!await ui.confirm(`Remove ${s.domain} from Nginx? Its files and certificate are kept on the server.`)) return;
             try { await api.del("api/sites/" + s.id); say(""); loadList(); } catch (x) { say(x.message); }
           } }, "Remove"))));
     });
@@ -425,7 +518,7 @@ function databasesView(view) {
   const say = (m, ok, log) => notice.replaceChildren(
     ...[m ? h("div", { class: "msg " + (ok ? "ok" : "err") }, m) : null, log ? h("pre", { class: "log" }, log) : null].filter(Boolean));
   const secretBox = h("div"), body = h("div");
-  view.append(h("div", { class: "topbar" }, h("h1", {}, "Databases")), notice, secretBox, body);
+  view.append(ui.pageHead("Databases", "MariaDB and PostgreSQL databases and their users."), notice, secretBox, body);
   const LABEL = { mysql: "MariaDB / MySQL", postgres: "PostgreSQL" };
   const human = (n) => n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : n < 1073741824 ? (n / 1048576).toFixed(1) + " MB" : (n / 1073741824).toFixed(2) + " GB";
 
@@ -468,11 +561,11 @@ function databasesView(view) {
           h("td", { class: "name mono" }, db.name), h("td", { class: "muted" }, human(db.bytes)),
           h("td", { class: "act" }, h("div", { class: "row" },
             h("button", { class: "btn sm", onclick: async () => {
-              if (!confirm(`Set a new password for user "${db.name}"? Apps using the old one will stop working.`)) return;
+              if (!await ui.confirm(`Set a new password for user "${db.name}"? Apps using the old one will stop working.`)) return;
               try { showSecret(await api.post("api/databases/" + en.engine + "/" + db.name + "/password")); } catch (x) { say(x.message); }
             } }, "New password"),
             h("button", { class: "btn sm danger", onclick: async () => {
-              const typed = prompt(`This permanently deletes the database "${db.name}" and its user. Type the database name to confirm:`);
+              const typed = await ui.prompt(`This permanently deletes the database "${db.name}" and its user. Type the database name to confirm:`);
               if (typed !== db.name) return;
               try { await api.del("api/databases/" + en.engine + "/" + db.name); say("Database deleted.", true); load(); } catch (x) { say(x.message); }
             } }, "Delete")))))))) : h("p", { class: "muted" }, "No databases yet."));
@@ -487,7 +580,7 @@ function backupsView(view) {
   const notice = h("div");
   const say = (m, ok) => notice.replaceChildren(...(m ? [h("div", { class: "msg " + (ok ? "ok" : "err") }, m)] : []));
   const makeBox = h("div"), schedBox = h("div"), listBox = h("div", { class: "card table-wrap" }, "Loading…");
-  view.append(h("div", { class: "topbar" }, h("h1", {}, "Backups")), notice, makeBox, schedBox, listBox);
+  view.append(ui.pageHead("Backups", "Snapshots of your sites and databases, on demand or on a schedule."), notice, makeBox, schedBox, listBox);
   const human = (n) => n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : n < 1073741824 ? (n / 1048576).toFixed(1) + " MB" : (n / 1073741824).toFixed(2) + " GB";
   let schedCmd = "";
 
@@ -546,12 +639,12 @@ function backupsView(view) {
             const msg = b.kind === "site"
               ? `Restore the files of ${b.target} from this backup? Files with the same name will be overwritten.`
               : `Restore database "${b.target}" from this backup? Its current contents will be replaced.`;
-            if (!confirm(msg)) return;
+            if (!await ui.confirm(msg)) return;
             const btn = e.currentTarget; btn.disabled = true; say("Restoring…", true);
             try { await api.post("api/backups/" + encodeURIComponent(b.name) + "/restore"); say("Restored.", true); } catch (x) { say(x.message); } finally { btn.disabled = false; }
           } }, "Restore"),
           h("button", { class: "btn sm danger", onclick: async () => {
-            if (!confirm("Delete this backup file?")) return;
+            if (!await ui.confirm("Delete this backup file?")) return;
             try { await api.del("api/backups/" + encodeURIComponent(b.name)); loadList(); } catch (x) { say(x.message); }
           } }, "Delete"))))))));
   }
@@ -561,7 +654,7 @@ function backupsView(view) {
 /* ---- one-click apps ---- */
 function appsView(view) {
   const notice = h("div"), resultBox = h("div");
-  view.append(h("div", { class: "topbar" }, h("h1", {}, "One-click apps")), notice, resultBox);
+  view.append(ui.pageHead("One-click apps", "Install ready-made apps on a domain in a minute."), notice, resultBox);
   const dom = h("input", { type: "text", placeholder: "blog.example.com", autocomplete: "off", class: "mono" });
   const title = h("input", { type: "text", placeholder: "My new site", autocomplete: "off" });
   const user = h("input", { type: "text", autocomplete: "off" }); user.value = "siteadmin";
@@ -600,7 +693,7 @@ function dnsView(view) {
   const notice = h("div");
   const say = (m, ok) => notice.replaceChildren(...(m ? [h("div", { class: "msg " + (ok ? "ok" : "err") }, m)] : []));
   const body = h("div");
-  view.append(h("div", { class: "topbar" }, h("h1", {}, "DNS (Cloudflare)")), notice, body);
+  view.append(ui.pageHead("DNS", "Manage DNS records for domains on your Cloudflare account."), notice, body);
   let zoneId = "", serverIp = "";
 
   async function load() {
@@ -625,7 +718,7 @@ function dnsView(view) {
     sel.value = zoneId;
     sel.addEventListener("change", () => { zoneId = sel.value; drawRecords(); });
     const disconnect = h("button", { class: "btn sm danger", onclick: async () => {
-      if (!confirm("Remove the saved Cloudflare token from this server?")) return;
+      if (!await ui.confirm("Remove the saved Cloudflare token from this server?")) return;
       try { await api.del("api/dns/token"); zoneId = ""; load(); } catch (x) { say(x.message); }
     } }, "Disconnect");
     const recBox = h("div");
@@ -687,7 +780,7 @@ function dnsView(view) {
         h("td", { class: "act" }, h("div", { class: "row" },
           h("button", { class: "btn sm", onclick: () => { editing = r; drawForm(); window.scrollTo(0, 0); } }, "Edit"),
           h("button", { class: "btn sm danger", onclick: async () => {
-            if (!confirm(`Delete the ${r.type} record ${r.name}?`)) return;
+            if (!await ui.confirm(`Delete the ${r.type} record ${r.name}?`)) return;
             try { await api.del("api/dns/zones/" + zoneId + "/records/" + r.id); drawRecords(); } catch (x) { say(x.message); }
           } }, "Delete"))))))) : h("p", { class: "muted" }, "No records."));
     box.replaceChildren(point, formBox, table);
@@ -707,7 +800,7 @@ function cronView(view) {
   const say = (m, ok, log) => notice.replaceChildren(
     ...[m ? h("div", { class: "msg " + (ok ? "ok" : "err") }, m) : null, log ? h("pre", { class: "log" }, log) : null].filter(Boolean));
   const formBox = h("div"), listBox = h("div", { class: "card table-wrap" }, "Loading…");
-  view.append(h("div", { class: "topbar" }, h("h1", {}, "Cron jobs")), notice, formBox, listBox);
+  view.append(ui.pageHead("Cron jobs", "Run commands on a schedule."), notice, formBox, listBox);
   let editing = null;
 
   function drawForm() {
@@ -760,7 +853,7 @@ function cronView(view) {
             try { await api.put("api/cron/" + j.id, { name: j.name, schedule: j.schedule, command: j.command, enabled: !j.enabled }); loadList(); } catch (x) { say(x.message); }
           } }, j.enabled ? "Pause" : "Resume"),
           h("button", { class: "btn sm danger", onclick: async () => {
-            if (!confirm(`Delete the job "${j.name}"?`)) return;
+            if (!await ui.confirm(`Delete the job "${j.name}"?`)) return;
             try { await api.del("api/cron/" + j.id); loadList(); } catch (x) { say(x.message); }
           } }, "Delete")))))))); 
   }
@@ -773,7 +866,7 @@ function firewallView(view) {
   const say = (m, ok, log) => notice.replaceChildren(
     ...[m ? h("div", { class: "msg " + (ok ? "ok" : "err") }, m) : null, log ? h("pre", { class: "log" }, log) : null].filter(Boolean));
   const body = h("div");
-  view.append(h("div", { class: "topbar" }, h("h1", {}, "Firewall")), notice, body);
+  view.append(ui.pageHead("Firewall", "Choose which ports are open to the internet."), notice, body);
 
   async function load() {
     let st;
@@ -789,8 +882,8 @@ function firewallView(view) {
       return;
     }
     const toggle = h("button", { class: st.active ? "btn danger" : "btn primary", onclick: async () => {
-      if (st.active && !confirm("Turn the firewall off? All ports will be reachable from the internet.")) return;
-      if (!st.active && !confirm(`Turn the firewall on? Ports ${st.protected_ports.join(", ")} (SSH and this panel) will be allowed first so you stay connected. Everything else incoming is blocked unless you add a rule.`)) return;
+      if (st.active && !await ui.confirm("Turn the firewall off? All ports will be reachable from the internet.")) return;
+      if (!st.active && !await ui.confirm(`Turn the firewall on? Ports ${st.protected_ports.join(", ")} (SSH and this panel) will be allowed first so you stay connected. Everything else incoming is blocked unless you add a rule.`)) return;
       toggle.disabled = true;
       try { if (st.active) await api.post("api/firewall/disable"); else { const r = await api.post("api/firewall/enable"); say("Firewall enabled.", true, r.log); } load(); }
       catch (x) { say(x.message, false, x.log); } finally { toggle.disabled = false; }
@@ -827,7 +920,7 @@ function firewallView(view) {
           h("td", {}, h("span", { class: "badge " + (r.action === "ALLOW" ? "ok" : r.action === "LIMIT" ? "warn" : "bad") }, r.action)),
           h("td", { class: "mono muted" }, r.from),
           h("td", { class: "act" }, h("button", { class: "btn sm danger", onclick: async () => {
-            if (!confirm(`Delete rule ${r.number} (${r.to})?`)) return;
+            if (!await ui.confirm(`Delete rule ${r.number} (${r.to})?`)) return;
             try { await api.del("api/firewall/rules/" + r.number + "?to=" + encodeURIComponent(r.to)); load(); } catch (x) { say(x.message); load(); }
           } }, "Delete")))))) : h("p", { class: "muted" }, "No rules yet.")));
   }
@@ -865,7 +958,7 @@ function terminalView(view) {
   }
 
   view.append(
-    h("div", { class: "topbar" }, h("h1", {}, "Terminal"),
+    h("div", { class: "page-head" }, h("h1", { class: "page-title" }, "Terminal"),
       h("div", { class: "row" }, status, h("button", { class: "btn sm", onclick: connect }, "Reconnect"))),
     host,
     h("p", { class: "muted" }, "Runs as the panel's user (root). Full-screen programs like vim, nano and htop are not supported yet."));
@@ -983,7 +1076,7 @@ function settingsView(view) {
         ". The server's IP address does not open the panel."),
         h("label", { class: "field" }, h("span", {}, "Confirm password to remove the domain"), pw),
         h("button", { class: "btn danger", onclick: async (e) => {
-          if (!confirm("Remove the panel domain? The panel will go back to its IP address and port.")) return;
+          if (!await ui.confirm("Remove the panel domain? The panel will go back to its IP address and port.")) return;
           const btn = e.currentTarget; btn.disabled = true;
           try { done(domMsg, await api.call("DELETE", "api/panel/domain", { password: pw.value }), "Domain removed."); domBody.replaceChildren(); }
           catch (x) { say(domMsg, x.message); btn.disabled = false; }
@@ -1017,7 +1110,7 @@ function settingsView(view) {
   api.get("api/settings").then((x) => { drawDomain(x); drawPath(x); }).catch((x) => { say(domMsg, x.message); });
   const domCard = h("div", { class: "card" }, h("h2", {}, "Panel domain"), domMsg, domBody);
   const pathCard = h("div", { class: "card" }, h("h2", {}, "Login URL"), pathMsg, pathBody);
-  view.append(h("div", { class: "topbar" }, h("h1", {}, "Settings")), h("div", { class: "grid" }, upCard, domCard, pathCard, acmeCard, pwCard, tfCard));
+  view.append(ui.pageHead("Settings", "Updates, panel address, security and certificates."), h("div", { class: "grid" }, upCard, domCard, pathCard, acmeCard, pwCard, tfCard));
 }
 
 /* ---- boot ---- */
